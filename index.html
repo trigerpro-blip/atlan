@@ -1,0 +1,1356 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Atlas Answers</title>
+<style>
+  @import url('https://fonts.googleapis.com/css2?family=Source+Serif+4:opsz,wght@8..60,400;8..60,600&display=swap');
+  * { box-sizing: border-box; margin: 0; }
+  body { background:#fff; color:#111; font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,'Helvetica Neue',Arial,sans-serif; }
+  .serif { font-family:'Source Serif 4',Georgia,serif; }
+  .wrap { max-width:640px; margin:0 auto; padding:24px 20px 90px; }
+  button { cursor:pointer; font-family:inherit; }
+  input, select, textarea { font-family:inherit; }
+  input:focus, button:focus-visible, select:focus, textarea:focus { outline:2px solid #111; outline-offset:2px; }
+  @keyframes pulse { 0%,100%{opacity:.4} 50%{opacity:1} }
+  .pulsing { animation:pulse 1.4s ease-in-out infinite; }
+  @media (prefers-reduced-motion: reduce){ *{animation:none!important;transition:none!important} }
+
+  header.top { display:flex; align-items:center; gap:10px; margin-bottom:24px; }
+  .logo { font-size:20px; } .brand { font-size:19px; font-weight:700; }
+  .settings-btn { margin-left:auto; background:none; border:1px solid #d9d9d9; border-radius:999px; padding:7px 14px; font-size:13px; color:#555; }
+
+  .panel { border:1px solid #e5e5e5; border-radius:16px; padding:16px; margin-bottom:20px; background:#fafafa; }
+  .panel label { display:block; font-size:12px; font-weight:600; color:#767676; letter-spacing:.04em; text-transform:uppercase; margin:10px 0 5px; }
+  .panel input, .panel select, .panel textarea { width:100%; padding:11px 13px; font-size:15px; border:1px solid #d9d9d9; border-radius:10px; background:#fff; }
+  .panel textarea { min-height:190px; resize:vertical; line-height:1.5; font-size:14px; }
+  .panel.dropping { outline:2px dashed #111; outline-offset:3px; background:#f2f2f2; }
+  .hint { font-size:12.5px; color:#9a9a9a; line-height:1.5; margin-top:8px; }
+  .hint a { color:#555; }
+
+  .btn-primary { padding:13px 24px; font-size:15px; font-weight:600; border-radius:999px; border:none; background:#111; color:#fff; }
+  .btn-primary:disabled { background:#c9c9c9; }
+  .btn-outline { padding:13px 24px; font-size:15px; font-weight:600; border-radius:999px; border:1px solid #111; background:#fff; color:#111; }
+  .btn-outline:disabled { border-color:#d9d9d9; color:#bbb; }
+  .row { display:flex; gap:8px; flex-wrap:wrap; margin:14px 0 4px; }
+  .row .btn-primary, .row .btn-outline { flex:1 1 150px; }
+
+  .hero h1 { font-size:32px; font-weight:400; line-height:1.25; margin-bottom:14px; }
+  .hero p { font-size:16px; color:#767676; line-height:1.6; }
+
+  #docTitle { font-size:34px; font-weight:400; line-height:1.22; margin-bottom:22px; }
+  .card { border:1px solid #e5e5e5; border-radius:16px; padding:18px; margin-bottom:8px; box-shadow:0 1px 3px rgba(0,0,0,.04); }
+  .card .ct { font-size:18px; font-weight:600; margin-bottom:8px; }
+  .card .meta { font-size:15px; color:#767676; margin-bottom:14px; }
+  .card .overview { border-top:1px solid #eee; padding-top:14px; font-size:16px; line-height:1.65; color:#333; }
+  .export-row { display:flex; gap:8px; margin-bottom:10px; flex-wrap:wrap; }
+  .pagesize-row { display:flex; align-items:center; gap:10px; margin-bottom:10px; }
+  .pagesize-row label { font-size:12px; font-weight:600; color:#767676; letter-spacing:.04em; text-transform:uppercase; }
+  .pagesize-row select { flex:1; padding:10px 12px; font-size:14px; border:1px solid #d9d9d9; border-radius:10px; background:#fff; }
+  .export-row button { flex:1 1 120px; padding:12px 0; font-size:14px; font-weight:600; border-radius:999px; }
+  .wide-btn { width:100%; padding:12px 0; font-size:14px; font-weight:600; border-radius:999px; margin-bottom:10px; }
+  .linklike { background:none; border:none; padding:0 0 12px; font-size:13px; color:#767676; text-decoration:underline; }
+  #exportBox { width:100%; height:200px; padding:12px; font-size:13px; font-family:ui-monospace,SFMono-Regular,Menlo,monospace; line-height:1.5; border:1px solid #d9d9d9; border-radius:12px; background:#fafafa; color:#333; margin-bottom:12px; }
+
+  section.cat { margin-top:28px; }
+  section.cat h2 { font-size:19px; font-weight:700; margin-bottom:4px; }
+  section.cat .catdesc { font-size:15px; color:#9a9a9a; line-height:1.5; margin-bottom:14px; }
+  .page { padding-left:10px; margin-bottom:20px; }
+  .page-head { display:flex; justify-content:space-between; align-items:flex-start; gap:12px; margin-bottom:6px; }
+  .page-title { font-size:17px; font-weight:600; line-height:1.35; }
+  .badge { font-size:10.5px; font-weight:600; letter-spacing:.02em; padding:3px 9px; border-radius:999px;
+           white-space:nowrap; flex-shrink:0; line-height:1.25; position:relative; top:2px; }
+  .b-must { background:#111; color:#fff; }
+  .b-should { background:#f2f2f2; color:#555; }
+  .b-nice { background:#fff; color:#8a8a8a; border:1px solid #d9d9d9; }
+  .questions { font-size:15px; color:#9a9a9a; line-height:1.6; }
+  .pbtns { display:flex; gap:8px; flex-wrap:wrap; margin-top:8px; }
+  .writebtn { background:none; border:1px solid #d9d9d9; border-radius:999px; padding:6px 14px; font-size:13px; color:#555; }
+  .writebtn:disabled { color:#bbb; }
+  .qa { margin-top:10px; border:1px solid #ececec; border-radius:12px; padding:12px 14px; background:#fafafa; }
+  .qa-item { margin-bottom:10px; }
+  .qa-item:last-child { margin-bottom:0; }
+  .qa-q { font-size:13.5px; font-weight:600; color:#444; margin-bottom:2px; }
+  .qa-a { font-size:14px; color:#333; line-height:1.55; }
+  .article { margin-top:12px; border-left:3px solid #111; padding:4px 0 4px 14px; font-size:15px; line-height:1.7; color:#333; }
+  .article h4 { font-size:15.5px; margin:14px 0 4px; }
+  .article p { margin:8px 0; }
+  .article ul { margin:8px 0 8px 18px; }
+  /* ---------- highlights ---------- */
+  /* mark defaults to a yellow background in every browser, so it is reset here and
+     the fill comes only from .hl-N - that lets a mark carry an underline and no fill */
+  mark.hl { background:transparent; color:inherit; padding:0 1px; border-radius:2px;
+            -webkit-print-color-adjust:exact; print-color-adjust:exact; }
+  /* these must stay as specific as the mark.hl reset above (0,1,1) and sit after it,
+     or the transparent reset wins and no fill ever shows */
+  mark.hl-1 { background:#ffe98a; }   /* yellow */
+  mark.hl-2 { background:#b7ecb7; }   /* green  */
+  mark.hl-3 { background:#b3ddff; }   /* blue   */
+  mark.hl-4 { background:#ffc2da; }   /* pink   */
+  mark.hl-5 { background:#ffcb96; }   /* orange */
+  mark.hl-6 { background:#dcc8ff; }   /* purple */
+  mark.hl-7 { background:#a8ece4; }   /* teal   */
+  mark.hl-8 { background:#e0e0e0; }   /* grey   */
+  mark.hl-u { text-decoration:underline; text-decoration-color:#d42b2b;
+              text-decoration-thickness:2px; text-underline-offset:2px; }
+  #hlbar { position:absolute; z-index:60; display:none; gap:7px; align-items:center;
+           flex-wrap:wrap; max-width:min(272px, 92vw);
+           background:#111; padding:9px 11px; border-radius:16px;
+           box-shadow:0 6px 20px rgba(0,0,0,.28); }
+  #hlbar .sw { width:21px; height:21px; padding:0; border-radius:50%;
+               border:1.5px solid rgba(255,255,255,.55); }
+  #hlbar .sw:hover { transform:scale(1.12); }
+  #hlbar .sw-1 { background:#ffe98a; } #hlbar .sw-2 { background:#b7ecb7; }
+  #hlbar .sw-3 { background:#b3ddff; } #hlbar .sw-4 { background:#ffc2da; }
+  #hlbar .sw-5 { background:#ffcb96; } #hlbar .sw-6 { background:#dcc8ff; }
+  #hlbar .sw-7 { background:#a8ece4; } #hlbar .sw-8 { background:#e0e0e0; }
+  #hlbar .txtbtn { background:none; border:1px solid rgba(255,255,255,.45); color:#fff;
+                   border-radius:999px; font-size:12px; padding:3px 11px; }
+  #hlbar .ulbtn { text-decoration:underline; text-decoration-color:#ff6b6b;
+                  text-decoration-thickness:2px; text-underline-offset:2px; }
+  [data-hlkey] { cursor:text; }
+
+  /* saved copy: the reading half stays live (highlights, toggles, both PDFs),
+     everything that would call the API or reparse an outline is switched off */
+  body.viewer #settingsPanel, body.viewer #settingsToggle, body.viewer #pastePanel,
+  body.viewer #hero, body.viewer #answerAllBtn, body.viewer #stopBtn,
+  body.viewer .pbtns, body.viewer #clearBtn { display:none !important; }
+  body.viewer .brand::after { content:" · saved copy"; font-weight:400; color:#9a9a9a; }
+  .pageno { font-variant-numeric:tabular-nums; color:#9a9a9a; font-weight:600; margin-right:5px; }
+  .atend { font-size:12.5px; color:#b0b0b0; margin-top:7px; font-style:italic; }
+  .answerkey { border-top:2px solid #111; padding-top:18px; }
+
+  .errline { font-size:14px; color:#b91c1c; margin-bottom:16px; }
+  .pageerr { font-size:13px; color:#b91c1c; margin-top:6px; }
+  .footer-note { font-size:12px; color:#bbb; text-align:center; margin-top:30px; }
+
+  /* ---------- print / save-as-PDF ---------- */
+  @page { size: A4 portrait; margin: 14mm; }
+  @media print {
+    header.top, #settingsPanel, #pastePanel, #errLine, #progressLine, #hero,
+    #exportArea, .pbtns, .pageerr, .footer-note, #hlbar, .atend { display:none !important; }
+    /* highlights are the whole point of the export - force the ink */
+    mark.hl { -webkit-print-color-adjust:exact !important; print-color-adjust:exact !important; }
+    /* the answer key starts its own page, and disappears from a questions-only run */
+    .answerkey { break-before:page; page-break-before:always; border-top:none; padding-top:0; }
+    body.qonly .answerkey { display:none !important; }
+    body { background:#fff; }
+    .wrap { max-width:100%; padding:0; }
+    * { orphans:2; widows:2; }
+    /* compact cover block: title, counts, overview - no card chrome */
+    .card { box-shadow:none; border:none; padding:0; break-inside:avoid; }
+    .card .ct { display:none !important; }
+    .card .meta { font-size:12px; margin-bottom:10px; }
+    .card .overview { border-top:1px solid #ddd; }
+    .qa { background:#fafafa !important; -webkit-print-color-adjust:exact; print-color-adjust:exact;
+          display:block !important; break-inside:auto; }
+    .article { display:block !important; break-inside:auto; border-left-color:#111 !important; }
+    /* questions-only PDF: strip answers and write-ups */
+    body.qonly .qa, body.qonly .article { display:none !important; }
+    /* answers PDF: the .qa block already repeats each question, so drop the
+       summary line - but only on pages that actually have answers */
+    body.aonly .page.has-answers .questions { display:none !important; }
+
+    /* line boxes must be slightly TALLER than the font's ascent+descent (~1.45em),
+       otherwise PDF highlight quads overlap the lines above and below */
+    .questions, .qa-a, .qa-q, .article, .article p, .article li,
+    .catdesc, .card .overview, .page-title { line-height:1.55 !important; }
+    .article p { margin:6px 0 !important; }
+    .article li { margin:4px 0 !important; }
+    .qa-item { margin-bottom:7px !important; }
+    .page-head { display:block !important; }
+    .page-head .badge { display:inline-block; margin-top:1px; top:0 !important;
+                        font-size:9px !important; padding:2px 7px !important; }
+    /* Break policy: a block told never to break that cannot fit on one page gets
+       overflowed and clipped by the browser - which is what was cutting content off.
+       So nothing large is protected; only units guaranteed smaller than a page are.
+       A page carrying three answers plus a 500-word deeper look is far taller than
+       a sheet, and on the iPhone box a deeper look alone is taller than the page. */
+    section.cat { break-inside:auto; }
+    section.cat h2, section.cat .catdesc { break-after:avoid; page-break-after:avoid; }
+    .page { break-inside:auto; }
+    .page-head { break-after:avoid; page-break-after:avoid; }   /* never strand a title */
+    .qa-item { break-inside:avoid; page-break-inside:avoid; }   /* keep Q with its A */
+    .questions { break-inside:avoid; page-break-inside:avoid; }
+    .article h4 { break-after:avoid; page-break-after:avoid; break-inside:avoid; }
+    .article p, .article li { break-inside:avoid; page-break-inside:avoid; }
+    /* a questions-only sheet has short pages, so those can safely stay whole */
+    body.qonly .page { break-inside:avoid; page-break-inside:avoid; }
+    .badge.b-must { background:#111 !important; color:#fff !important;
+      -webkit-print-color-adjust:exact; print-color-adjust:exact; }
+    .badge.b-should { background:#f2f2f2 !important;
+      -webkit-print-color-adjust:exact; print-color-adjust:exact; }
+    a { text-decoration:none; color:inherit; }
+
+    /* ----- iPhone reading layout -----
+       The page box is 19.5:9, the same shape as the screen, so a page fills it with
+       no letterboxing and no pinch-zoom: one swipe = one screen. The printable width
+       (~96mm ≈ 363px) sits just under the 402pt logical width of an iPhone 17, so
+       type set here lands on the phone at roughly the size it has in a browser. */
+    body.phone .page { padding-left:0; margin-bottom:15px; }
+    body.phone #docTitle { font-size:20px; margin-bottom:10px; }
+    body.phone .card { padding:0; border:none; }
+    body.phone .card .overview { font-size:13px; padding-top:10px; }
+    body.phone section.cat { margin-top:18px; }
+    body.phone section.cat h2 { font-size:15.5px; }
+    body.phone .catdesc { font-size:12.5px; margin-bottom:10px; }
+    body.phone .page-title { font-size:14.5px; }
+    body.phone .questions { font-size:13px; }
+    body.phone .qa { padding:9px 11px; border-radius:10px; margin-top:8px; }
+    body.phone .qa-q { font-size:12.5px; }
+    body.phone .qa-a { font-size:13px; }
+    body.phone .qa-item { margin-bottom:8px !important; }
+    body.phone .article { font-size:13px; padding-left:11px; margin-top:10px; }
+    body.phone .article h4 { font-size:13.5px; margin:11px 0 3px; }
+    body.phone .page-head .badge { font-size:8.5px !important; padding:2px 6px !important; }
+    /* long question text must not push the page wider than the screen */
+    body.phone .questions, body.phone .qa-q, body.phone .qa-a,
+    body.phone .article, body.phone .page-title { overflow-wrap:break-word; }
+  }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <header class="top">
+    <span class="logo">&#10035;</span><span class="brand">Atlas Answers</span>
+    <button class="settings-btn" id="settingsToggle">Settings</button>
+  </header>
+
+  <div class="panel" id="settingsPanel">
+    <div style="font-size:15px;font-weight:600;">Setup (one time)</div>
+    <label for="provider">Provider</label>
+    <select id="provider">
+      <option value="gemini" selected>Google Gemini &mdash; free tier</option>
+      <option value="groq">Groq &mdash; free tier, very fast</option>
+      <option value="openrouter">OpenRouter &mdash; free models</option>
+    </select>
+    <label for="apiKey">API key</label>
+    <input type="password" id="apiKey" placeholder="Paste your key here" autocomplete="off">
+    <label for="modelName">Model</label>
+    <select id="modelName"></select>
+    <input type="text" id="customModel" placeholder="Type an exact model name" style="display:none;margin-top:6px;">
+    <p class="hint" id="providerHint"></p>
+  </div>
+
+  <div class="panel" id="pastePanel">
+    <div style="font-size:15px;font-weight:600;">Paste a taxonomy</div>
+    <label for="topicInput">Topic (used as context for every answer)</label>
+    <input type="text" id="topicInput" placeholder="e.g. Craniopharyngioma: imaging features">
+    <label for="answerStyle">Answer style</label>
+    <select id="answerStyle">
+      <option value="exam" selected>Exam &mdash; radiology viva level</option>
+      <option value="general">General &mdash; plain-language learner</option>
+    </select>
+    <label for="pasteBox">Taxonomy text</label>
+    <textarea id="pasteBox" placeholder="Paste the outline here - categories, page titles, priorities and questions. Copied straight off the screen, from the .md export, or just a list of questions: all three work."></textarea>
+    <div class="row">
+      <button class="btn-primary" id="parseBtn">Read this outline</button>
+      <button class="btn-outline" id="loadBtn">Load saved page</button>
+      <button class="btn-outline" id="clearBtn">Clear saved work</button>
+    </div>
+    <input type="file" id="fileInput" accept=".html,.htm,.md,.txt,text/html,text/plain" style="display:none;">
+    <p class="hint">Everything stays in this browser. Answers are saved locally, so a refresh will not lose them. <strong>Load saved page</strong> reopens an HTML file you saved earlier, with its answers and highlights &mdash; you can also drop the file anywhere on this panel.</p>
+  </div>
+
+  <div class="errline" id="errLine" style="display:none;"></div>
+  <div class="pulsing" id="progressLine" style="display:none;font-size:14px;color:#111;margin-bottom:18px;"></div>
+
+  <div class="hero" id="hero">
+    <h1 class="serif">Bring your own outline. Get the answers.</h1>
+    <p>Paste any taxonomy, syllabus or question list. Every page gets tight, specific quick answers &mdash; and a deeper look whenever one answer is not enough.</p>
+  </div>
+
+  <div id="result" style="display:none;">
+    <h1 id="docTitle" class="serif"></h1>
+    <div class="card">
+      <div class="ct serif">Answers for this outline</div>
+      <div class="meta" id="metaLine"></div>
+      <div id="exportArea">
+        <button class="btn-primary wide-btn" id="answerAllBtn">&#9889; Quick answers for every page</button>
+        <button class="btn-outline wide-btn" id="stopBtn" style="display:none;">Stop</button>
+        <div class="pagesize-row">
+          <label for="answerPos">Answers</label>
+          <select id="answerPos">
+            <option value="inline" selected>With each page</option>
+            <option value="end">All at the end &mdash; question paper + key</option>
+          </select>
+        </div>
+        <div class="pagesize-row">
+          <label for="pageSize">Page</label>
+          <select id="pageSize">
+            <option value="a4" selected>A4 &mdash; print and desktop</option>
+            <option value="phone">iPhone &mdash; full-screen reading</option>
+          </select>
+        </div>
+        <div class="export-row">
+          <button class="btn-outline" id="pdfQBtn">&#128196; PDF &middot; questions only</button>
+          <button class="btn-outline" id="pdfABtn">&#128196; PDF &middot; with answers</button>
+        </div>
+        <div class="export-row">
+          <button class="btn-outline" id="copyBtn">Copy</button>
+          <button class="btn-outline" id="dlBtn">Save page as HTML</button>
+        </div>
+        <p class="hint" style="margin:0 0 10px;">Questions-only prints the outline as a self-test sheet. The answers PDF adds the quick answers, plus any deeper looks you have written. On the iPhone page size, turn off headers and footers and set margins to None in the print dialog. Saving as HTML keeps a working copy &mdash; highlighting and both PDF exports still run in it, without your API key.</p>
+        <button class="linklike" id="showTextBtn">Show text to select manually</button>
+        <button class="linklike" id="clearHlBtn" style="margin-left:14px;">Clear all highlights</button>
+        <textarea id="exportBox" readonly style="display:none;"></textarea>
+      </div>
+      <div class="overview" id="overviewText"></div>
+    </div>
+    <div id="categories"></div>
+    <section class="cat answerkey" id="answerKey" style="display:none;"></section>
+  </div>
+
+  <div id="hlbar">
+    <button class="sw sw-1" data-fill="1" title="Yellow"></button>
+    <button class="sw sw-2" data-fill="2" title="Green"></button>
+    <button class="sw sw-3" data-fill="3" title="Blue"></button>
+    <button class="sw sw-4" data-fill="4" title="Pink"></button>
+    <button class="sw sw-5" data-fill="5" title="Orange"></button>
+    <button class="sw sw-6" data-fill="6" title="Purple"></button>
+    <button class="sw sw-7" data-fill="7" title="Teal"></button>
+    <button class="sw sw-8" data-fill="8" title="Grey"></button>
+    <button class="txtbtn ulbtn" data-ul="1" title="Red underline - stacks on any colour">Underline</button>
+    <button class="txtbtn" data-fill="0" title="Remove colour, keep the underline">No fill</button>
+    <button class="txtbtn" data-clear="1" title="Remove colour and underline">Clear</button>
+  </div>
+
+  <p class="footer-note">Runs entirely in your browser with your own key. Nothing to install, nothing hosted.</p>
+</div>
+
+<script>
+"use strict";
+// ---------------- state ----------------
+let doc = null;   // {topic,title,overview,style,categories:[{name,description,pages:[...]}]}
+let stopFlag = false;
+const $ = (id) => document.getElementById(id);
+
+const store = {
+  get(k){ try { return localStorage.getItem(k); } catch(e){ return null; } },
+  set(k,v){ try { localStorage.setItem(k,v); } catch(e){} },
+  del(k){ try { localStorage.removeItem(k); } catch(e){} }
+};
+
+// ---------------- settings (shares stored keys with Topic Atlas) ----------------
+const PROVIDERS = {
+  gemini: {
+    models: ["gemini-3.6-flash","gemini-3.5-flash-lite"],
+    hint: 'Free key at <a href="https://aistudio.google.com/apikey" target="_blank" rel="noopener">aistudio.google.com/apikey</a>. Free tier has daily limits.'
+  },
+  groq: {
+    models: ["llama-3.3-70b-versatile","openai/gpt-oss-120b"],
+    hint: 'Free key at <a href="https://console.groq.com/keys" target="_blank" rel="noopener">console.groq.com/keys</a>. Very fast, generous free tier, no card needed.'
+  },
+  openrouter: {
+    models: ["deepseek/deepseek-chat-v3.1:free","meta-llama/llama-3.3-70b-instruct:free"],
+    hint: 'Free key at <a href="https://openrouter.ai/keys" target="_blank" rel="noopener">openrouter.ai/keys</a>. Models ending in :free cost nothing.'
+  }
+};
+function currentProvider(){ return $("provider").value; }
+function fillModels(prov, selected){
+  const sel = $("modelName");
+  sel.innerHTML = "";
+  PROVIDERS[prov].models.forEach(m=>{
+    const o = document.createElement("option"); o.value = m; o.textContent = m; sel.appendChild(o);
+  });
+  const o = document.createElement("option"); o.value = "custom"; o.textContent = "Custom…"; sel.appendChild(o);
+  $("providerHint").innerHTML = PROVIDERS[prov].hint
+    + ' Your key is stored only in this browser on this device and is sent only to that provider.';
+  if (selected && PROVIDERS[prov].models.includes(selected)){
+    sel.value = selected; $("customModel").style.display = "none";
+  } else if (selected){
+    sel.value = "custom"; $("customModel").style.display = "block"; $("customModel").value = selected;
+  } else {
+    $("customModel").style.display = "none";
+  }
+}
+function currentModel(){
+  const sel = $("modelName").value;
+  return sel === "custom"
+    ? ($("customModel").value.trim() || PROVIDERS[currentProvider()].models[0])
+    : sel;
+}
+function saveSettings(){
+  const p = currentProvider();
+  store.set("atlas_provider", p);
+  store.set("atlas_key_" + p, $("apiKey").value.trim());
+  store.set("atlas_model_" + p, currentModel());
+}
+function loadSettings(){
+  const p = store.get("atlas_provider") || "gemini";
+  $("provider").value = PROVIDERS[p] ? p : "gemini";
+  const prov = currentProvider();
+  $("apiKey").value = store.get("atlas_key_" + prov) || "";
+  fillModels(prov, store.get("atlas_model_" + prov));
+  if ($("apiKey").value) $("settingsPanel").style.display = "none";
+}
+$("provider").addEventListener("change", ()=>{
+  const prov = currentProvider();
+  $("apiKey").value = store.get("atlas_key_" + prov) || "";
+  fillModels(prov, store.get("atlas_model_" + prov));
+  store.set("atlas_provider", prov);
+  setError($("apiKey").value ? null : "Paste a key for this provider (link below the model box).");
+});
+$("apiKey").addEventListener("change", saveSettings);
+$("modelName").addEventListener("change", ()=>{
+  $("customModel").style.display = $("modelName").value === "custom" ? "block" : "none";
+  saveSettings();
+});
+$("customModel").addEventListener("change", saveSettings);
+$("settingsToggle").addEventListener("click", ()=>{
+  const p = $("settingsPanel");
+  p.style.display = p.style.display === "none" ? "block" : "none";
+});
+loadSettings();
+
+// ---------------- model call ----------------
+const sleep = (ms)=> new Promise(r=>setTimeout(r,ms));
+function parseJSONLoose(raw){
+  const cleaned = raw.replace(/```json|```/g,"").trim();
+  const s = cleaned.indexOf("{"), e = cleaned.lastIndexOf("}");
+  if (s === -1 || e === -1) throw new Error("No JSON in response");
+  return JSON.parse(cleaned.slice(s, e+1));
+}
+async function askOnce(prompt, opts){
+  const key = $("apiKey").value.trim();
+  if (!key) throw new Error("NOKEY");
+  const model = currentModel();
+  const prov = currentProvider();
+  const maxTokens = (opts && opts.maxTokens) || 4096;
+  let url, headers, body, extract;
+
+  if (prov === "gemini"){
+    url = "https://generativelanguage.googleapis.com/v1beta/models/" + model + ":generateContent";
+    headers = { "Content-Type":"application/json", "x-goog-api-key": key };
+    body = { contents: [{ parts: [{ text: prompt }] }],
+             generationConfig: { maxOutputTokens: maxTokens, temperature: 0.6 } };
+    if (opts && opts.json) body.generationConfig.responseMimeType = "application/json";
+    extract = (d)=> ((((d.candidates||[])[0]||{}).content||{}).parts||[]).map(p=>p.text||"").join("\n");
+  } else {
+    url = prov === "groq"
+      ? "https://api.groq.com/openai/v1/chat/completions"
+      : "https://openrouter.ai/api/v1/chat/completions";
+    headers = { "Content-Type":"application/json", "Authorization": "Bearer " + key };
+    body = { model: model, messages: [{ role:"user", content: prompt }],
+             max_tokens: maxTokens, temperature: 0.6 };
+    extract = (d)=> ((((d.choices||[])[0]||{}).message||{}).content) || "";
+  }
+
+  const res = await fetch(url, { method:"POST", headers: headers, body: JSON.stringify(body) });
+  if (!res.ok){
+    let msg = "HTTP " + res.status;
+    try { const j = await res.json(); if (j.error) msg = j.error.message || JSON.stringify(j.error); } catch(e){}
+    const err = new Error(msg); err.status = res.status; throw err;
+  }
+  const data = await res.json();
+  const text = extract(data);
+  if (!text || !text.trim()) throw new Error("Empty response");
+  return text;
+}
+async function ask(prompt, opts, tries){
+  tries = tries || 3; let lastErr;
+  for (let i=0;i<tries;i++){
+    try {
+      const text = await askOnce(prompt, opts);
+      return (opts && opts.json) ? parseJSONLoose(text) : text;
+    } catch(e){
+      lastErr = e;
+      if (e.message === "NOKEY" || e.status === 400 || e.status === 401 || e.status === 403) throw e;
+      if (i < tries-1) await sleep(e.status === 429 ? 3000*(i+1) : 800*(i+1));
+    }
+  }
+  throw lastErr;
+}
+
+// ---------------- prompts ----------------
+const VOICE = {
+  exam: {
+    who: "a radiology resident preparing for board-style examinations",
+    quick: "Answer each question in 1-2 sentences at the level expected in a viva: a direct plain lead, then the specific discriminator - the named sign, sequence, signal characteristic, threshold, percentage or eponym. Where the question asks how two entities differ, name the single most useful separating feature rather than listing overlaps.",
+    deep: "lead with the plain idea in one sentence, then go straight to the specifics that let a reader defend the answer - the named sign, the sequence and signal behaviour, the numbers, thresholds, percentages, eponyms and mechanisms. State explicitly which feature is discriminating and which is merely common. Where a mimic exists, name it and give the feature that separates them."
+  },
+  general: {
+    who: "a motivated learner meeting this material properly for the first time",
+    quick: "Answer each question in 1-2 sentences a learner can actually understand: plain language first, then the correct technical term, plus the specific figure, threshold or name if one exists.",
+    deep: "start with the plain-language idea, introduce the correct technical term as you go, then give the concrete specifics - numbers, thresholds, eponyms, named examples and mechanisms. Use a brief analogy only where it genuinely clarifies a mechanism."
+  }
+};
+function qList(page){ return page.questions.map((q,i)=>(i+1)+". "+q).join("\n"); }
+
+function quickPrompt(page, catName){
+  const v = VOICE[doc.style] || VOICE.exam;
+  return 'You are answering revision questions for ' + v.who + ' studying "' + doc.topic + '".'
+    + ' Section: "' + catName + '", page: "' + page.title + '".\n\n'
+    + v.quick + ' No hedging, no filler, no restating the question. Accuracy matters more than brevity, but stay tight.\n\n'
+    + 'Questions:\n' + qList(page)
+    + '\n\nRespond with ONLY a JSON object with one answer per question, in order:\n{ "answers": ["...", "..."] }';
+}
+function deepPrompt(page, catName){
+  const v = VOICE[doc.style] || VOICE.exam;
+  return 'You are writing one page of a reference on "' + doc.topic + '" for ' + v.who + '.'
+    + ' Section: "' + catName + '".\n\nPage title: "' + page.title + '"\nThe page must clearly answer:\n'
+    + qList(page)
+    + '\n\nWrite in clean Markdown:\n'
+    + '- A short intro (2-3 sentences) placing this page in context: what it is and what problem it solves here.\n'
+    + '- One #### heading per question.\n'
+    + '- Under each: ' + v.deep + '\n'
+    + '- Define any jargon at first use, in-line, in a few words. Never pad.\n'
+    + '- Finish with a "#### Key points" section: 3-4 tight bullets carrying the facts worth memorising, each containing a specific.\n\n'
+    + 'Around 400-550 words. Accurate and specific throughout - no vague filler, no hedging. No preamble, start directly with the intro.';
+}
+
+// ---------------- parser ----------------
+// Handles three shapes without being told which: text copied off the screen
+// (title glued to its priority badge, questions joined by a middot), the
+// markdown export (#/##/### headings with "- question" bullets), and a bare
+// list of questions.
+const PRIO_RE  = /(Must[\s-]?have|Should[\s-]?have|Nice[\s-]?to[\s-]?have)\s*$/i;
+const ONLY_PRIO_RE = /^[*•–-]?\s*(Must[\s-]?have|Should[\s-]?have|Nice[\s-]?to[\s-]?have)\s*$/i;
+const LEAD_PRIO_RE = /^(Must[\s-]?have|Should[\s-]?have|Nice[\s-]?to[\s-]?have)(?=[A-Z])/;
+const NOISE_RE = /(⚡\s*Quick answers|Write this page\s*(→|->)?|↳\s*Flowchart for this section|Flowchart for this section|Show text to select manually|Save as PDF|Download \.md)/gi;
+const QWORD_RE = /^(what|how|why|which|when|where|who|name|describe|compare|list|explain|discuss|outline)\b/i;
+
+function normPriority(s){
+  const t = String(s).toLowerCase().replace(/\s/g,"-");
+  if (t.indexOf("must") === 0) return "Must-have";
+  if (t.indexOf("nice") === 0) return "Nice-to-have";
+  return "Should-have";
+}
+function splitQuestions(line){
+  return line.split(/\s*[·•]\s*|\s+\|\s+/)
+    .map(s=>s.replace(/^\s*\d+[.)]\s*/,"").replace(/^[-*–]\s*/,"").trim())
+    .filter(s=> s.length > 4);
+}
+function parseTaxonomy(raw){
+  const rawLines = String(raw).replace(/\r/g,"").split("\n");
+  let items = [];
+  rawLines.forEach(rl=>{
+    const indented = /^\s{2,}[-*]\s+/.test(rl);
+    const text = rl.replace(/\u00a0/g," ").replace(NOISE_RE,"").trim();
+    if (text) items.push({ text: text, indented: indented });
+  });
+
+  // The priority badge sits in its own element beside the title, so depending on how
+  // the page was selected it can copy out glued on ("Cine ImagingMust-have") or as a
+  // line of its own. Glue the orphans back before anything else looks at the text.
+  for (let i=1;i<items.length;i++){
+    if (ONLY_PRIO_RE.test(items[i].text) && items[i-1].text && !PRIO_RE.test(items[i-1].text)
+        && !items[i-1].text.includes("?")){
+      items[i-1].text = items[i-1].text.replace(/\s+$/,"") + items[i].text;
+      items[i].text = "";
+    }
+  }
+  // ...and the same badge can land at the front of the following line instead
+  for (let i=0;i<items.length;i++){
+    const m = LEAD_PRIO_RE.exec(items[i].text);
+    if (m && i > 0 && items[i-1].text && !PRIO_RE.test(items[i-1].text) && !items[i-1].text.includes("?")){
+      items[i-1].text = items[i-1].text.replace(/\s+$/,"") + m[1];
+      items[i].text = items[i].text.slice(m[1].length).trim();
+    }
+  }
+  items = items.filter(it=>it.text);
+
+  const out = { title:"", overview:"", categories:[] };
+  let cat = null, page = null, wantDesc = false, lastQIdx = -1;
+
+  const newCat = (name, auto)=>{
+    cat = { name: name, description:"", pages: [], auto: !!auto };
+    out.categories.push(cat); page = null; lastQIdx = -1;
+    return cat;
+  };
+  const newPage = (title, prio, auto)=>{
+    if (!cat) newCat("Questions", true);
+    page = { title: title, priority: normPriority(prio||"Should-have"),
+             questions: [], quick: null, article: null, auto: !!auto };
+    cat.pages.push(page); lastQIdx = -1;
+    return page;
+  };
+  const chunkTitle = (from, to)=> "Questions " + from + "–" + to;
+
+  for (let i=0;i<items.length;i++){
+    const line = items[i].text;
+
+    // an indented bullet right after a question is that question's saved answer
+    if (items[i].indented && page && lastQIdx >= 0){
+      const ans = line.replace(/^[-*]\s*/,"").trim();
+      if (ans && !ans.includes("?")){
+        page.quick = page.quick || [];
+        page.quick[lastQIdx] = ans;
+        continue;
+      }
+    }
+
+    // markdown headings
+    let m = /^#\s+(.*)$/.exec(line);
+    if (m){ out.title = m[1].trim(); continue; }
+    m = /^##\s+(.*)$/.exec(line);
+    if (m){ newCat(m[1].trim()); wantDesc = true; continue; }
+    m = /^###\s+(.*)$/.exec(line);
+    if (m){
+      const t = m[1].trim();
+      const parts = t.split(/\s+[—–-]\s+/);
+      const prio = parts.length > 1 ? parts.pop() : "";
+      newPage(parts.join(" - ").trim(), prio);
+      continue;
+    }
+
+    const bare = line.replace(/^[*•–-]\s+/,"").trim();
+
+    // "Sellar AnatomyMust-have"  /  "* Sellar Anatomy Must-have"
+    const pm = PRIO_RE.exec(bare);
+    if (pm && !bare.includes("?")){
+      const title = bare.slice(0, pm.index).trim();
+      if (title){ newPage(title, pm[1]); wantDesc = false; continue; }
+    }
+
+    // question line
+    if (bare.includes("?")){
+      const qs = splitQuestions(bare);
+      if (qs.length){
+        if (!page) newPage(qs[0].slice(0,60), "Should-have", true);
+        qs.forEach(q=>{ if (!page.questions.includes(q)) page.questions.push(q); });
+        lastQIdx = page.questions.length - 1;
+        wantDesc = false;
+        continue;
+      }
+    }
+
+    // everything else: category name, category description, or the overview blurb
+    if (wantDesc && cat && !cat.description){ cat.description = bare; wantDesc = false; continue; }
+    if (bare.length > 110 && !out.overview){ out.overview = bare; continue; }
+    if (bare.length <= 90){
+      const next = (items[i+1]||{}).text || "";
+      const nextIsQuestion = next.includes("?");
+      const nextIsProse = next && !nextIsQuestion && !PRIO_RE.test(next)
+                          && !/^#/.test(next) && next.length > 25;
+      // a short line sitting directly on top of a question line is a page title,
+      // not a section heading - this is what a paste with the badges stripped
+      // out looks like, and reading it as a category loses every page name
+      if (nextIsQuestion) newPage(bare, "Should-have");
+      else { newCat(bare); wantDesc = !!nextIsProse; }
+      continue;
+    }
+    if (!out.overview) out.overview = bare;
+  }
+
+  // drop pages with no questions, then empty categories
+  out.categories.forEach(c=>{ c.pages = c.pages.filter(p=>p.questions.length); });
+  out.categories = out.categories.filter(c=>c.pages.length);
+
+  // a category whose every page was invented from a loose question line is really
+  // just a run of questions: regroup it into readable chunks of three
+  out.categories.forEach(c=>{
+    if (!c.pages.length || !c.pages.every(p=>p.auto)) return;
+    const qs = [];
+    c.pages.forEach(p=>p.questions.forEach(q=>qs.push(q)));
+    c.pages = [];
+    for (let i=0;i<qs.length;i+=3){
+      const chunk = qs.slice(i, i+3);
+      c.pages.push({ title: chunkTitle(i+1, i+chunk.length), priority:"Should-have",
+                     questions: chunk, quick:null, article:null });
+    }
+    if (!c.description) c.description = "Parsed as a plain question list - no page titles were found in the paste.";
+  });
+
+  // fallback: nothing structured survived, so treat it as a bare question list
+  if (!out.categories.length){
+    const qs = [];
+    items.forEach(it=>{
+      const b = it.text.replace(/^[*•–-]\s+/,"").replace(/^\s*\d+[.)]\s*/,"").trim();
+      if (b.includes("?") || QWORD_RE.test(b)) splitQuestions(b).forEach(q=>qs.push(q));
+    });
+    if (qs.length){
+      const c = { name:"Questions", description:"Parsed as a flat list - no categories were found in the paste.", pages:[] };
+      for (let i=0;i<qs.length;i+=3){
+        const chunk = qs.slice(i,i+3);
+        c.pages.push({ title: chunkTitle(i+1, i+chunk.length),
+                       priority:"Should-have", questions:chunk, quick:null, article:null });
+      }
+      out.categories.push(c);
+    }
+  }
+
+  out.categories.forEach(c=>{
+    delete c.auto;
+    c.pages.forEach(p=>{
+      delete p.auto;
+      if (p.quick && p.quick.filter(Boolean).length !== p.questions.length) p.quick = null;
+    });
+  });
+  return out;
+}
+
+// ---------------- persistence ----------------
+// A saved page keeps its own storage slot, so opening one cannot overwrite the work
+// in progress in the app itself (both can end up on the same file:// origin).
+let VIEWER = false, DOC_KEY = "answers_doc";
+function normaliseHl(d){
+  if (!d || !d.hl) return d;
+  Object.keys(d.hl).forEach(k=>{
+    d.hl[k] = tidy((d.hl[k]||[]).map(r=> [r[0], r[1], r[2]|0, r[3]|0]));   // pad legacy [s,e,fill]
+    if (!d.hl[k].length) delete d.hl[k];
+  });
+  return d;
+}
+function saveDoc(){ if (doc) store.set(DOC_KEY, JSON.stringify(doc)); }
+function loadDoc(){
+  const s = store.get(DOC_KEY);
+  if (!s) return false;
+  try {
+    doc = normaliseHl(JSON.parse(s));
+    if (!doc || !doc.categories || !doc.categories.length) { doc = null; return false; }
+    $("topicInput").value = doc.topic || "";
+    $("answerStyle").value = doc.style || "exam";
+    render();
+    return true;
+  } catch(e){ doc = null; return false; }
+}
+
+// ---------------- highlights ----------------
+// Ranges are stored as [start, end, colour] character offsets into a block's plain
+// text, never as DOM positions - so they survive re-rendering, redoing an answer,
+// and moving the answers to the back of the document.
+const HL_BASE = new Map();   // hlkey -> the block's HTML before any highlighting
+let hlPending = null;        // [{key, start, end}] captured from the live selection
+
+function hlRanges(key){ return (doc && doc.hl && doc.hl[key]) || []; }
+function setRanges(key, list){
+  if (!doc.hl) doc.hl = {};
+  if (list && list.length) doc.hl[key] = list; else delete doc.hl[key];
+}
+// A range is [start, end, fill, underline]. Fill (0-8) and underline (0/1) are
+// independent, so a red underline stacks on top of any colour instead of replacing
+// it. Older saved ranges are 3-long and read as underline 0.
+function tidy(list){
+  const out = list.filter(r=> r[1] > r[0] && (r[2] || r[3])).sort((a,b)=> a[0]-b[0]);
+  const merged = [];
+  out.forEach(r=>{
+    const last = merged[merged.length-1];
+    if (last && last[1] === r[0] && last[2] === r[2] && last[3] === r[3]) last[1] = r[1];
+    else merged.push([r[0], r[1], r[2]|0, r[3]|0]);
+  });
+  return merged;
+}
+function applyStyle(list, s, e, patch){
+  const out = [];
+  const style = (fill, ul)=> [ patch.fill != null ? patch.fill : fill,
+                               patch.ul   != null ? patch.ul   : ul ];
+  list.forEach(r=>{
+    if (r[1] <= s || r[0] >= e){ out.push(r.slice()); return; }   // untouched
+    if (r[0] < s) out.push([r[0], s, r[2], r[3]|0]);              // keep the head
+    if (r[1] > e) out.push([e, r[1], r[2], r[3]|0]);              // keep the tail
+  });
+  // rebuild the selected span, carrying over whatever the patch does not set
+  const inter = list.filter(r=> r[1] > s && r[0] < e).sort((a,b)=> a[0]-b[0]);
+  let pos = s;
+  inter.forEach(r=>{
+    const a = Math.max(r[0], s), b = Math.min(r[1], e);
+    if (a > pos){ const st = style(0,0); out.push([pos, a, st[0], st[1]]); }
+    const st = style(r[2], r[3]|0);
+    out.push([a, b, st[0], st[1]]);
+    pos = b;
+  });
+  if (pos < e){ const st = style(0,0); out.push([pos, e, st[0], st[1]]); }
+  return tidy(out);
+}
+function cutRange(list, s, e){
+  const out = [];
+  list.forEach(r=>{
+    if (r[1] <= s || r[0] >= e){ out.push(r.slice()); return; }
+    if (r[0] < s) out.push([r[0], s, r[2], r[3]|0]);
+    if (r[1] > e) out.push([e, r[1], r[2], r[3]|0]);
+  });
+  return tidy(out);
+}
+function markClass(r){
+  return "hl" + (r[2] ? " hl-" + r[2] : "") + (r[3] ? " hl-u" : "");
+}
+function textOffset(root, node, off){
+  if (node.nodeType !== 3) return 0;
+  const w = document.createTreeWalker(root, NodeFilter.SHOW_TEXT);
+  let n, acc = 0;
+  while ((n = w.nextNode())){
+    if (n === node) return acc + off;
+    acc += n.nodeValue.length;
+  }
+  return acc;
+}
+function paintRanges(box, ranges){
+  if (!ranges.length) return;
+  const w = document.createTreeWalker(box, NodeFilter.SHOW_TEXT);
+  const nodes = []; let n;
+  while ((n = w.nextNode())) nodes.push(n);
+  let acc = 0;
+  nodes.forEach(node=>{
+    const start = acc, end = acc + node.nodeValue.length;
+    acc = end;
+    const hits = ranges.filter(r=> r[0] < end && r[1] > start).sort((a,b)=> a[0]-b[0]);
+    if (!hits.length) return;
+    const frag = document.createDocumentFragment();
+    let pos = start;
+    hits.forEach(h=>{
+      const s = Math.max(h[0], start, pos), e = Math.min(h[1], end);
+      if (e <= s) return;
+      if (s > pos) frag.appendChild(document.createTextNode(node.nodeValue.slice(pos-start, s-start)));
+      const m = document.createElement("mark");
+      m.className = markClass(h);
+      m.textContent = node.nodeValue.slice(s-start, e-start);
+      frag.appendChild(m);
+      pos = e;
+    });
+    if (pos < end) frag.appendChild(document.createTextNode(node.nodeValue.slice(pos-start)));
+    node.parentNode.replaceChild(frag, node);
+  });
+}
+function applyHighlights(root){
+  root.querySelectorAll("[data-hlkey]").forEach(box=>{
+    HL_BASE.set(box.dataset.hlkey, box.innerHTML);   // freshly rendered, unhighlighted
+    paintRanges(box, hlRanges(box.dataset.hlkey));
+  });
+}
+function repaintKey(key){
+  document.querySelectorAll('[data-hlkey="' + key + '"]').forEach(box=>{
+    if (HL_BASE.has(key)) box.innerHTML = HL_BASE.get(key);
+    paintRanges(box, hlRanges(key));
+  });
+}
+function captureSelection(){
+  const sel = window.getSelection();
+  hlPending = null;
+  if (!sel || sel.isCollapsed || !sel.rangeCount) return null;
+  const r = sel.getRangeAt(0);
+  if (!String(sel).trim()) return null;
+  const hits = [];
+  document.querySelectorAll("[data-hlkey]").forEach(box=>{
+    if (!r.intersectsNode(box)) return;
+    const len = box.textContent.length;
+    const s = box.contains(r.startContainer) ? textOffset(box, r.startContainer, r.startOffset) : 0;
+    const e = box.contains(r.endContainer)   ? textOffset(box, r.endContainer,   r.endOffset)   : len;
+    if (e > s) hits.push({ key: box.dataset.hlkey, start: s, end: e });
+  });
+  if (!hits.length) return null;
+  hlPending = hits;
+  return r.getBoundingClientRect();
+}
+function showHlBar(rect){
+  const bar = $("hlbar");
+  bar.style.display = "flex";
+  const w = bar.offsetWidth || 210, h = bar.offsetHeight || 36;
+  let left = rect.left + window.scrollX + rect.width/2 - w/2;
+  left = Math.max(8, Math.min(left, document.documentElement.clientWidth - w - 8));
+  let top = rect.top + window.scrollY - h - 8;
+  if (top < window.scrollY + 4) top = rect.bottom + window.scrollY + 8;   // flip below
+  bar.style.left = left + "px";
+  bar.style.top = top + "px";
+}
+function hideHlBar(){ $("hlbar").style.display = "none"; hlPending = null; }
+function applyPending(patch){
+  if (!hlPending) return;
+  hlPending.forEach(h=>{
+    const list = hlRanges(h.key);
+    setRanges(h.key, patch.clear ? cutRange(list, h.start, h.end)
+                                 : applyStyle(list, h.start, h.end, patch));
+    repaintKey(h.key);
+  });
+  const sel = window.getSelection(); if (sel) sel.removeAllRanges();
+  hideHlBar(); saveDoc(); updateMeta();
+}
+document.addEventListener("mouseup", (e)=>{
+  if (e.target.closest && e.target.closest("#hlbar")) return;
+  setTimeout(()=>{ const rect = captureSelection(); if (rect) showHlBar(rect); else hideHlBar(); }, 10);
+});
+document.addEventListener("touchend", ()=>{
+  setTimeout(()=>{ const rect = captureSelection(); if (rect) showHlBar(rect); else hideHlBar(); }, 60);
+});
+document.addEventListener("keydown", (e)=>{ if (e.key === "Escape") hideHlBar(); });
+
+// ---------------- rendering ----------------
+function esc(s){ return String(s).replace(/[&<>"]/g, c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[c])); }
+function badgeClass(p){ return p==="Must-have"?"b-must":(p==="Nice-to-have"?"b-nice":"b-should"); }
+function setProgress(msg){ const el=$("progressLine"); if(msg){el.textContent=msg;el.style.display="block";} else el.style.display="none"; }
+function setError(msg){ const el=$("errLine"); if(msg){el.textContent=msg;el.style.display="block";} else el.style.display="none"; }
+
+function mdToHtml(md){
+  const lines = esc(md).split("\n");
+  let out = "", inList = false;
+  for (const line of lines){
+    const t = line.trim();
+    if (t.startsWith("#### ") || t.startsWith("### ") || t.startsWith("## ")){
+      if (inList){ out += "</ul>"; inList = false; }
+      out += "<h4>" + t.replace(/^#+\s*/,"") + "</h4>";
+    } else if (t.startsWith("- ") || t.startsWith("* ")){
+      if (!inList){ out += "<ul>"; inList = true; }
+      out += "<li>" + t.slice(2) + "</li>";
+    } else if (t === ""){
+      if (inList){ out += "</ul>"; inList = false; }
+    } else {
+      if (inList){ out += "</ul>"; inList = false; }
+      out += "<p>" + t + "</p>";
+    }
+  }
+  if (inList) out += "</ul>";
+  return out.replace(/\*\*(.+?)\*\*/g, "<strong>$1</strong>");
+}
+
+function render(){
+  $("hero").style.display = "none";
+  $("result").style.display = "block";
+  $("docTitle").textContent = doc.title || doc.topic || "Pasted outline";
+  $("overviewText").textContent = doc.overview || "";
+  $("answerPos").value = doc.answerPos || "inline";
+  HL_BASE.clear();
+  const box = $("categories"); box.innerHTML = "";
+  doc.categories.forEach((c,i)=>{
+    const sec = document.createElement("section");
+    sec.className = "cat"; sec.id = "cat-"+i;
+    box.appendChild(sec);
+    renderCategory(i);
+  });
+  renderAnswerKey();
+  updateMeta();
+}
+function updateMeta(){
+  let pages = 0, qs = 0, answered = 0, deep = 0;
+  doc.categories.forEach(c=>c.pages.forEach(p=>{
+    pages++; qs += p.questions.length;
+    if (p.quick) answered++;
+    if (p.article) deep++;
+  }));
+  let hls = 0;
+  if (doc.hl) Object.keys(doc.hl).forEach(k=> hls += doc.hl[k].length);
+  $("metaLine").textContent = doc.categories.length + " categories · " + pages + " pages · "
+    + qs + " questions · " + answered + "/" + pages + " answered"
+    + (deep ? " · " + deep + " deeper" : "")
+    + (hls ? " · " + hls + " highlight" + (hls>1?"s":"") : "");
+  $("answerAllBtn").textContent = answered >= pages
+    ? "⚡ Re-answer any page that failed"
+    : "⚡ Quick answers for every page (" + (pages - answered) + " left)";
+}
+function answersAtEnd(){ return (doc && doc.answerPos) === "end"; }
+function pageNo(i,j){ return (i+1) + "." + (j+1); }
+// every highlightable block carries a stable key, so a highlight survives a
+// re-render, a redo, and the answers being moved to the back of the document
+function hk(i,j,kind,k){ return "c"+i+".p"+j+"."+kind+(k==null?"":k); }
+function hlBox(key, cls, inner){
+  return '<div class="' + cls + '" data-hlkey="' + key + '">' + inner + '</div>';
+}
+function qaBlockHtml(i, j, p){
+  return '<div class="qa">' + p.questions.map((q,k)=>
+    '<div class="qa-item">'
+    + '<div class="qa-q" data-hlkey="' + hk(i,j,"q",k) + '">' + esc(q) + '</div>'
+    + '<div class="qa-a" data-hlkey="' + hk(i,j,"a",k) + '">' + esc(p.quick[k] || "—") + '</div>'
+    + '</div>').join("") + '</div>';
+}
+function articleHtml(i, j, p){
+  return hlBox(hk(i,j,"art"), "article", mdToHtml(p.article));
+}
+
+function renderCategory(i){
+  const c = doc.categories[i];
+  const sec = $("cat-"+i); if (!sec) return;
+  const atEnd = answersAtEnd();
+  let html = '<h2>' + esc(c.name) + '</h2>';
+  if (c.description) html += '<div class="catdesc">' + esc(c.description) + '</div>';
+  c.pages.forEach((p,j)=>{
+    const showInline = p.quick && !atEnd;
+    html += '<div class="page' + (p.quick ? ' has-answers' : '') + '">'
+         +  '<div class="page-head"><span class="page-title">'
+         +  (atEnd ? '<span class="pageno">' + pageNo(i,j) + '</span> ' : '')
+         +  esc(p.title) + '</span>'
+         +  '<span class="badge ' + badgeClass(p.priority) + '">' + esc(p.priority) + '</span></div>';
+    // the questions line is dropped once the answers sit right below it, since the
+    // Q&A block repeats every question anyway
+    if (!showInline){
+      html += '<div class="questions">' + p.questions.map((q,k)=>
+        '<span data-hlkey="' + hk(i,j,"q",k) + '">' + esc(q) + '</span>').join(" · ") + '</div>';
+    }
+    if (showInline){
+      html += qaBlockHtml(i, j, p);
+    } else if (p.quickLoading){
+      html += '<div class="pulsing" style="font-size:13px;color:#555;margin-top:8px;">Getting quick answers…</div>';
+    } else if (p.quick && atEnd){
+      html += '<div class="atend">Answer ' + pageNo(i,j) + ' is in the answer key</div>';
+    }
+    if (p.article && !atEnd){
+      html += articleHtml(i, j, p);
+    } else if (p.articleLoading){
+      html += '<div class="pulsing" style="font-size:13px;color:#555;margin-top:8px;">Taking a deeper look…</div>';
+    }
+    if (p.error) html += '<div class="pageerr">' + esc(p.error) + '</div>';
+    html += '<div class="pbtns">'
+         +  '<button class="writebtn" onclick="getQuick(' + i + ',' + j + ')"' + (p.quickLoading?' disabled':'') + '>'
+         +  (p.quick ? '↻ Redo quick answers' : '⚡ Quick answers') + '</button>'
+         +  '<button class="writebtn" onclick="getDeep(' + i + ',' + j + ')"' + (p.articleLoading?' disabled':'') + '>'
+         +  (p.article ? '↻ Redo deeper look' : '🔍 Deeper look') + '</button>'
+         +  '</div></div>';
+  });
+  sec.innerHTML = html;
+  applyHighlights(sec);
+}
+
+function renderAnswerKey(){
+  const box = $("answerKey");
+  if (!answersAtEnd()){ box.innerHTML = ""; box.style.display = "none"; return; }
+  let any = false, html = '<h2>Answer key</h2>'
+    + '<div class="catdesc">In outline order. The number matches the page it belongs to.</div>';
+  doc.categories.forEach((c,i)=>{
+    c.pages.forEach((p,j)=>{
+      if (!p.quick && !p.article) return;
+      any = true;
+      html += '<div class="page"><div class="page-head"><span class="page-title">'
+           +  '<span class="pageno">' + pageNo(i,j) + '</span> ' + esc(p.title) + '</span></div>';
+      if (p.quick) html += qaBlockHtml(i, j, p);
+      if (p.article) html += articleHtml(i, j, p);
+      html += '</div>';
+    });
+  });
+  box.innerHTML = any ? html : "";
+  box.style.display = any ? "block" : "none";
+  if (any) applyHighlights(box);
+}
+
+// ---------------- answering ----------------
+function friendlyErr(e){
+  if (e.message === "NOKEY") return "Add your API key in Settings first.";
+  if (e.status === 429) return "Rate limited - wait a moment, then retry this page.";
+  if (e.status === 400 || e.status === 401 || e.status === 403) return "Key or model problem: " + e.message;
+  return e.message;
+}
+// re-answering replaces the text, so any highlight offsets into the old wording
+// would land on the wrong words - drop them rather than leave them misplaced
+function dropHighlights(i, j, kinds){
+  if (!doc.hl) return;
+  Object.keys(doc.hl).forEach(k=>{
+    kinds.forEach(kind=>{ if (k.indexOf(hk(i,j,kind)) === 0) delete doc.hl[k]; });
+  });
+}
+window.getQuick = async function(i, j){
+  const c = doc.categories[i], p = c.pages[j];
+  if (p.quickLoading) return;
+  if (p.quick) dropHighlights(i, j, ["a"]);
+  p.quickLoading = true; p.error = null; renderCategory(i);
+  try {
+    const res = await ask(quickPrompt(p, c.name), { json:true, maxTokens:1400 });
+    const a = res.answers || [];
+    p.quick = p.questions.map((q,k)=> a[k] || "—");
+    setError(null);
+  } catch(e){
+    p.error = friendlyErr(e);
+    if (e.message === "NOKEY") $("settingsPanel").style.display = "block";
+  }
+  p.quickLoading = false; renderCategory(i); renderAnswerKey(); updateMeta(); saveDoc();
+};
+window.getDeep = async function(i, j){
+  const c = doc.categories[i], p = c.pages[j];
+  if (p.articleLoading) return;
+  if (p.article) dropHighlights(i, j, ["art"]);
+  p.articleLoading = true; p.error = null; renderCategory(i);
+  try {
+    p.article = await ask(deepPrompt(p, c.name), { maxTokens:2400 });
+    setError(null);
+  } catch(e){
+    p.error = friendlyErr(e);
+    if (e.message === "NOKEY") $("settingsPanel").style.display = "block";
+  }
+  p.articleLoading = false; renderCategory(i); renderAnswerKey(); updateMeta(); saveDoc();
+};
+
+$("answerAllBtn").addEventListener("click", async ()=>{
+  const todo = [];
+  doc.categories.forEach((c,i)=>c.pages.forEach((p,j)=>{ if (!p.quick) todo.push([i,j]); }));
+  if (!todo.length){ setProgress(null); setError("Every page already has answers - use a page button to redo one."); return; }
+  setError(null);
+  stopFlag = false;
+  $("answerAllBtn").disabled = true; $("stopBtn").style.display = "block";
+  let done = 0;
+  // two at a time: fast enough to be usable, gentle enough for free-tier limits
+  const worker = async ()=>{
+    while (todo.length && !stopFlag){
+      const [i,j] = todo.shift();
+      setProgress("Answering " + (done+1) + " of " + (done + todo.length + 1) + "…");
+      await window.getQuick(i,j);
+      done++;
+    }
+  };
+  await Promise.all([worker(), worker()]);
+  setProgress(null);
+  $("answerAllBtn").disabled = false; $("stopBtn").style.display = "none";
+  updateMeta();
+});
+$("stopBtn").addEventListener("click", ()=>{ stopFlag = true; setProgress("Stopping after the current page…"); });
+
+// ---------------- input ----------------
+function restoreDoc(d){
+  doc = normaliseHl(d);
+  $("topicInput").value = doc.topic || "";
+  $("answerStyle").value = doc.style || "exam";
+  setError(null); render(); saveDoc();
+  $("result").scrollIntoView({ behavior:"smooth", block:"start" });
+}
+// Opening a file we saved earlier: the embedded document is restored whole, so the
+// answers, deeper looks and highlights come back and answering can carry on. Any
+// other text file is treated as a fresh outline to parse.
+function ingestFile(file){
+  if (!file) return;
+  const reader = new FileReader();
+  reader.onload = ()=>{
+    const text = String(reader.result || "");
+    const saved = docFromSavedHtml(text);
+    if (saved){
+      restoreDoc(saved);
+      setProgress(null);
+      return;
+    }
+    $("pasteBox").value = text;
+    if (/<html|<!DOCTYPE/i.test(text.slice(0, 400))){
+      setError("That HTML file has no saved outline in it - only pages saved from here can be reopened.");
+      return;
+    }
+    $("parseBtn").click();
+  };
+  reader.onerror = ()=> setError("Could not read that file.");
+  reader.readAsText(file);
+}
+// a saved HTML page carries the whole working document, answers and highlights
+// included - paste it back and pick up exactly where you left off
+function docFromSavedHtml(raw){
+  const m = /<script type="application\/json" id="atlasdoc">([\s\S]*?)<\/script>/.exec(raw);
+  if (!m) return null;
+  try {
+    const d = JSON.parse(m[1].replace(/<\\\//g, "</"));
+    return (d && d.categories && d.categories.length) ? d : null;
+  } catch(e){ return null; }
+}
+$("parseBtn").addEventListener("click", ()=>{
+  const raw = $("pasteBox").value;
+  if (!raw.trim()){ setError("Paste the outline into the box first."); return; }
+
+  const restored = docFromSavedHtml(raw);
+  if (restored){ restoreDoc(restored); return; }
+
+  const parsed = parseTaxonomy(raw);
+  if (!parsed.categories.length){
+    setError("Nothing question-shaped in that paste. It needs at least one line containing a question mark.");
+    return;
+  }
+
+  // the topic is the context every single answer is generated against, so a wrong
+  // guess quietly poisons the whole run - confirm it rather than assume it
+  let topic = $("topicInput").value.trim();
+  if (!topic){
+    if (parsed.title){
+      topic = parsed.title;
+    } else {
+      $("topicInput").value = parsed.categories[0].name;
+      $("topicInput").focus();
+      $("topicInput").select();
+      setError("Set the topic above first - it is the context for every answer. I guessed “"
+        + parsed.categories[0].name + "” from the paste; make it specific, then press again.");
+      return;
+    }
+  }
+
+  setError(null);
+  doc = parsed;
+  doc.style = $("answerStyle").value;
+  doc.answerPos = store.get("answers_pos") || "inline";
+  doc.hl = {};
+  doc.topic = topic;
+  $("topicInput").value = topic;
+  render(); saveDoc();
+  $("result").scrollIntoView({ behavior:"smooth", block:"start" });
+});
+$("hlbar").addEventListener("mousedown", (e)=> e.preventDefault());   // keep the selection alive
+$("hlbar").addEventListener("click", (e)=>{
+  const btn = e.target.closest("button"); if (!btn) return;
+  if (btn.dataset.clear) applyPending({ clear:true });
+  else if (btn.dataset.ul) applyPending({ ul:1 });
+  else if (btn.dataset.fill != null) applyPending({ fill: parseInt(btn.dataset.fill, 10) });
+});
+$("answerPos").addEventListener("change", ()=>{
+  store.set("answers_pos", $("answerPos").value);
+  if (!doc) return;
+  doc.answerPos = $("answerPos").value;
+  render(); saveDoc();
+});
+$("clearHlBtn").addEventListener("click", ()=>{
+  if (!doc || !doc.hl || !Object.keys(doc.hl).length){ setError("There are no highlights to clear."); return; }
+  if (!window.confirm("Remove every highlight in this document?")) return;
+  doc.hl = {}; setError(null); render(); saveDoc();
+});
+$("topicInput").addEventListener("change", ()=>{ if (doc){ doc.topic = $("topicInput").value.trim() || doc.topic; saveDoc(); } });
+$("answerStyle").addEventListener("change", ()=>{ if (doc){ doc.style = $("answerStyle").value; saveDoc(); } });
+$("loadBtn").addEventListener("click", ()=> $("fileInput").click());
+$("fileInput").addEventListener("change", (e)=>{
+  ingestFile(e.target.files && e.target.files[0]);
+  e.target.value = "";               // so the same file can be picked twice
+});
+["dragenter","dragover"].forEach(ev=>
+  $("pastePanel").addEventListener(ev, (e)=>{ e.preventDefault(); $("pastePanel").classList.add("dropping"); }));
+["dragleave","dragend"].forEach(ev=>
+  $("pastePanel").addEventListener(ev, ()=> $("pastePanel").classList.remove("dropping")));
+$("pastePanel").addEventListener("drop", (e)=>{
+  e.preventDefault();
+  $("pastePanel").classList.remove("dropping");
+  const f = e.dataTransfer && e.dataTransfer.files && e.dataTransfer.files[0];
+  if (f) ingestFile(f);
+});
+$("clearBtn").addEventListener("click", ()=>{
+  if (!window.confirm("Delete the parsed outline and every saved answer?")) return;
+  store.del("answers_doc"); doc = null;
+  $("result").style.display = "none"; $("hero").style.display = "block";
+  $("pasteBox").value = ""; setError(null); setProgress(null);
+});
+
+// ---------------- export ----------------
+function toMarkdown(){
+  let md = "# " + (doc.title || doc.topic) + "\n\n";
+  if (doc.overview) md += doc.overview + "\n\n";
+  doc.categories.forEach(c=>{
+    md += "## " + c.name + "\n" + (c.description||"") + "\n\n";
+    c.pages.forEach(p=>{
+      md += "### " + p.title + " — " + p.priority + "\n";
+      p.questions.forEach((q,k)=>{
+        md += "- " + q + "\n";
+        if (p.quick && p.quick[k]) md += "  - " + p.quick[k] + "\n";
+      });
+      if (p.article) md += "\n" + p.article + "\n";
+      md += "\n";
+    });
+  });
+  return md;
+}
+$("copyBtn").addEventListener("click", async ()=>{
+  const md = toMarkdown();
+  const done = ()=>{ $("copyBtn").textContent = "Copied ✓"; setTimeout(()=>{$("copyBtn").textContent="Copy";},1800); };
+  try {
+    if (navigator.clipboard && window.isSecureContext){ await navigator.clipboard.writeText(md); done(); return; }
+  } catch(e){}
+  try {
+    const ta = document.createElement("textarea");
+    ta.value = md; ta.style.position="fixed"; ta.style.opacity="0";
+    document.body.appendChild(ta); ta.focus(); ta.select();
+    document.execCommand("copy"); document.body.removeChild(ta); done();
+  } catch(e){ setError("Copy blocked - use “Show text” and copy manually."); }
+});
+// The saved page is this same app with the editing half switched off: the highlight
+// engine, the answers toggle, the page-size selector and both PDF modes all still
+// run. Cloning the live document rather than rebuilding a cut-down viewer means the
+// saved copy can never drift from the original. The API key is never included.
+function pageHtml(){
+  const clone = document.documentElement.cloneNode(true);
+  const q = (sel)=> clone.querySelector(sel);
+
+  q("title").textContent = doc.title || doc.topic || "Atlas Answers";
+  const key = q("#apiKey"); key.setAttribute("value",""); key.value = "";
+  q("#pasteBox").textContent = "";
+  q("#exportBox").textContent = "";
+  q("#hero").setAttribute("style","display:none");
+  q("#result").setAttribute("style","display:block");
+  q("#errLine").setAttribute("style","display:none");
+  q("#progressLine").setAttribute("style","display:none");
+  clone.querySelectorAll(".pulsing").forEach(n=>{
+    if (n.id !== "progressLine") n.remove();     // no stale "loading" text
+  });
+
+  const old = q("#atlasdoc"); if (old) old.remove();
+  // must sit in the head: the app script runs while the body is still parsing, so a
+  // tag placed after it would not exist yet when start() looks for the document
+  const holder = clone.querySelector("head");
+  const tag = document.createElement("script");
+  tag.type = "application/json";
+  tag.id = "atlasdoc";
+  // the serialiser does not escape inside a script element, so a "</" in the data
+  // would close the tag early - it is escaped here and unescaped on read
+  tag.textContent = JSON.stringify(doc).replace(/<\//g, "<\\/");
+  holder.appendChild(tag);
+
+  return "<!DOCTYPE html>\n" + clone.outerHTML;
+}
+$("dlBtn").addEventListener("click", ()=>{
+  const blob = new Blob([pageHtml()], { type:"text/html" });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement("a");
+  a.href = url;
+  a.download = (doc.title || doc.topic || "answers").replace(/[^a-z0-9]+/gi,"-").toLowerCase() + ".html";
+  document.body.appendChild(a); a.click(); document.body.removeChild(a);
+  setTimeout(()=>URL.revokeObjectURL(url),1000);
+  $("dlBtn").textContent = "Saved ✓";
+  setTimeout(()=>{ $("dlBtn").textContent = "Save page as HTML"; }, 1800);
+});
+// @page cannot be switched by a body class, so the chosen page box is injected as a
+// print-only rule that overrides the A4 default further up the cascade.
+// The phone box is 19.5:9 - the iPhone 17 screen shape - so a page fills the screen.
+const PAGE_STYLES = {
+  a4:    "@page { size: A4 portrait; margin: 14mm; }",
+  phone: "@page { size: 106mm 231mm; margin: 5mm; }"
+};
+function applyPageSize(){
+  const mode = PAGE_STYLES[$("pageSize").value] ? $("pageSize").value : "a4";
+  let el = $("pageSizeStyle");
+  if (!el){
+    el = document.createElement("style");
+    el.id = "pageSizeStyle"; el.media = "print";
+    document.head.appendChild(el);
+  }
+  el.textContent = PAGE_STYLES[mode];
+  document.body.classList.toggle("phone", mode === "phone");
+  return mode;
+}
+$("pageSize").addEventListener("change", ()=> store.set("answers_pagesize", $("pageSize").value));
+(function(){ const v = store.get("answers_pagesize"); if (v && PAGE_STYLES[v]) $("pageSize").value = v; })();
+
+// two print modes: "qonly" strips every answer for a self-test sheet, "aonly"
+// keeps the answers and drops the duplicated question line above them
+function printAs(mode, suffix){
+  const prev = document.title;
+  const size = applyPageSize();
+  const base = (doc.title || doc.topic || "Atlas Answers").replace(/[^a-z0-9 ]/gi,"").trim();
+  document.title = base + " " + suffix + (size === "phone" ? " (phone)" : "");
+  document.body.classList.add(mode);
+  setTimeout(()=>{
+    window.print();
+    setTimeout(()=>{
+      document.body.classList.remove(mode);
+      document.body.classList.remove("phone");
+      document.title = prev;
+    }, 1000);
+  }, 60);
+}
+$("pdfQBtn").addEventListener("click", ()=> printAs("qonly", "- questions"));
+$("pdfABtn").addEventListener("click", ()=> printAs("aonly", "- with answers"));
+$("showTextBtn").addEventListener("click", ()=>{
+  const box = $("exportBox");
+  const show = box.style.display === "none";
+  box.style.display = show ? "block" : "none";
+  if (show) box.value = toMarkdown();
+  $("showTextBtn").textContent = show ? "Hide text" : "Show text to select manually";
+});
+
+// ---------------- start up ----------------
+(function start(){
+  const emb = document.getElementById("atlasdoc");
+  if (emb){
+    let d = null;
+    try { d = JSON.parse(emb.textContent.replace(/<\\\//g, "</")); } catch(e){}
+    if (d && d.categories && d.categories.length){
+      VIEWER = true;
+      document.body.classList.add("viewer");
+      DOC_KEY = "answers_view_" + String(d.title || d.topic || "doc")
+                                    .replace(/[^a-z0-9]+/gi,"-").toLowerCase().slice(0,60);
+      // highlights added since this copy was saved live in its own slot
+      const later = store.get(DOC_KEY);
+      if (later){ try { const l = JSON.parse(later); if (l && l.categories) d = l; } catch(e){} }
+      doc = normaliseHl(d);
+      $("topicInput").value = doc.topic || "";
+      $("answerStyle").value = doc.style || "exam";
+      render();
+      return;
+    }
+  }
+  loadDoc();
+})();
+</script>
+</body>
+</html>
