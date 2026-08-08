@@ -51,6 +51,8 @@
   .export-row button { flex:1 1 120px; padding:12px 0; font-size:14px; font-weight:600; border-radius:999px; }
   .wide-btn { width:100%; padding:12px 0; font-size:14px; font-weight:600; border-radius:999px; margin-bottom:10px; }
   .linklike { background:none; border:none; padding:0 0 12px; font-size:13px; color:#767676; text-decoration:underline; }
+  .filetarget { font-size:12.5px; color:#4a4a4a; background:#f2f2f2; border-radius:8px;
+                padding:7px 11px; margin-bottom:10px; }
   #exportBox { width:100%; height:200px; padding:12px; font-size:13px; font-family:ui-monospace,SFMono-Regular,Menlo,monospace; line-height:1.5; border:1px solid #d9d9d9; border-radius:12px; background:#fafafa; color:#333; margin-bottom:12px; }
 
   section.cat { margin-top:28px; }
@@ -118,7 +120,22 @@
   body.viewer .pbtns, body.viewer #clearBtn { display:none !important; }
   body.viewer .brand::after { content:" · saved copy"; font-weight:400; color:#9a9a9a; }
   .pageno { font-variant-numeric:tabular-nums; color:#9a9a9a; font-weight:600; margin-right:5px; }
-  .atend { font-size:12.5px; color:#b0b0b0; margin-top:7px; font-style:italic; }
+  a.pageno { text-decoration:none; border-bottom:1px dotted #c4c4c4; }
+  a.pageno:hover { color:#111; border-bottom-color:#111; }
+  .atend { font-size:12.5px; margin-top:7px; }
+  .atend a { color:#9a9a9a; text-decoration:none; border-bottom:1px dotted #cfcfcf; }
+  .atend a:hover { color:#111; }
+  @keyframes landing { from { background:#ffe98a; } to { background:transparent; } }
+  .page.landed { animation:landing 1.4s ease-out; border-radius:8px; }
+
+  /* one tab per loaded outline - revise one, read another */
+  .doctabs { display:flex; gap:6px; flex-wrap:wrap; margin-bottom:16px; }
+  .doctab { display:inline-flex; align-items:center; gap:8px; max-width:100%;
+            font-size:13px; padding:7px 8px 7px 14px; border-radius:999px;
+            border:1px solid #d9d9d9; background:#fff; color:#555; }
+  .doctab.on { background:#111; color:#fff; border-color:#111; }
+  .doctab .x { font-size:15px; line-height:1; opacity:.55; padding:0 4px; border-radius:50%; }
+  .doctab .x:hover { opacity:1; }
   .answerkey { border-top:2px solid #111; padding-top:18px; }
 
   .errline { font-size:14px; color:#b91c1c; margin-bottom:16px; }
@@ -129,7 +146,10 @@
   @page { size: A4 portrait; margin: 14mm; }
   @media print {
     header.top, #settingsPanel, #pastePanel, #errLine, #progressLine, #hero,
-    #exportArea, .pbtns, .pageerr, .footer-note, #hlbar, .atend { display:none !important; }
+    #exportArea, .pbtns, .pageerr, .footer-note, #hlbar, .doctabs { display:none !important; }
+    .atend { color:#b0b0b0; font-style:italic; }
+    .atend a, a.pageno { border-bottom:none; color:inherit; }
+    .page.landed { animation:none !important; background:transparent !important; }
     /* highlights are the whole point of the export - force the ink */
     mark.hl { -webkit-print-color-adjust:exact !important; print-color-adjust:exact !important; }
     /* the answer key starts its own page, and disappears from a questions-only run */
@@ -262,6 +282,7 @@
   </div>
 
   <div id="result" style="display:none;">
+    <div class="doctabs" id="docTabs" style="display:none;"></div>
     <h1 id="docTitle" class="serif"></h1>
     <div class="card">
       <div class="ct serif">Answers for this outline</div>
@@ -292,7 +313,9 @@
           <button class="btn-outline" id="dlBtn">Save page as HTML</button>
         </div>
         <p class="hint" style="margin:0 0 10px;">Questions-only prints the outline as a self-test sheet. The answers PDF adds the quick answers, plus any deeper looks you have written. On the iPhone page size, turn off headers and footers and set margins to None in the print dialog. Saving as HTML keeps a working copy &mdash; highlighting and both PDF exports still run in it, without your API key.</p>
+        <div class="filetarget" id="fileTarget" style="display:none;"></div>
         <button class="linklike" id="showTextBtn">Show text to select manually</button>
+        <button class="linklike" id="saveAsBtn" style="margin-left:14px;">Save as a new file</button>
         <button class="linklike" id="clearHlBtn" style="margin-left:14px;">Clear all highlights</button>
         <textarea id="exportBox" readonly style="display:none;"></textarea>
       </div>
@@ -328,7 +351,7 @@ const $ = (id) => document.getElementById(id);
 
 const store = {
   get(k){ try { return localStorage.getItem(k); } catch(e){ return null; } },
-  set(k,v){ try { localStorage.setItem(k,v); } catch(e){} },
+  set(k,v){ try { localStorage.setItem(k,v); return true; } catch(e){ return false; } },
   del(k){ try { localStorage.removeItem(k); } catch(e){} }
 };
 
@@ -685,6 +708,7 @@ function parseTaxonomy(raw){
 // A saved page keeps its own storage slot, so opening one cannot overwrite the work
 // in progress in the app itself (both can end up on the same file:// origin).
 let VIEWER = false, DOC_KEY = "answers_doc";
+let fileHandle = null, handles = [];      // handles[i] belongs to docs[i]
 function normaliseHl(d){
   if (!d || !d.hl) return d;
   Object.keys(d.hl).forEach(k=>{
@@ -693,18 +717,75 @@ function normaliseHl(d){
   });
   return d;
 }
-function saveDoc(){ if (doc) store.set(DOC_KEY, JSON.stringify(doc)); }
+// Several outlines can be open at once - one you are revising, another you are
+// reading - so the working set is an array with an active index. `doc` still points
+// at the active one, which is why the rest of the app needed no changes.
+let docs = [], activeIdx = 0;
+
+function saveDoc(){
+  if (VIEWER){ if (doc) store.set(DOC_KEY, JSON.stringify(doc)); return; }
+  if (!docs.length){ store.del(DOC_KEY); return; }
+  const ok = store.set(DOC_KEY, JSON.stringify({ v:2, active:activeIdx, docs:docs }));
+  if (!ok) setError("Browser storage is full - close a document, or save one as HTML and clear it.");
+}
+function syncInputs(){
+  $("topicInput").value = (doc && doc.topic) || "";
+  $("answerStyle").value = (doc && doc.style) || "exam";
+}
+function setActive(i){
+  if (i < 0 || i >= docs.length) return;
+  activeIdx = i; doc = docs[i];
+  // the file each document was opened from travels with it, so switching tabs
+  // cannot make Save write into the other document's file
+  fileHandle = handles[i] || null;
+  if (typeof showFileTarget === "function") showFileTarget();
+  HL_BASE.clear(); syncInputs(); render(); saveDoc();
+}
+function addDoc(d){
+  docs.push(d); handles.push(null);
+  setActive(docs.length - 1);
+}
+function closeDoc(i){
+  docs.splice(i, 1); handles.splice(i, 1);
+  if (!docs.length){
+    doc = null; activeIdx = 0;
+    $("result").style.display = "none";
+    $("hero").style.display = "block";
+    store.del(DOC_KEY);
+    renderTabs();
+    return;
+  }
+  setActive(Math.min(i, docs.length - 1));
+}
+window.switchDoc = (i)=> setActive(i);
+window.dropDoc = (i, ev)=>{ if (ev) ev.stopPropagation(); closeDoc(i); };
+function renderTabs(){
+  const bar = $("docTabs");
+  if (VIEWER || docs.length < 2){ bar.style.display = "none"; bar.innerHTML = ""; return; }
+  bar.style.display = "flex";
+  bar.innerHTML = docs.map((d,i)=>{
+    const name = d.title || d.topic || ("Document " + (i+1));
+    return '<button class="doctab' + (i === activeIdx ? ' on' : '') + '" onclick="switchDoc(' + i + ')">'
+      + esc(name.length > 34 ? name.slice(0,32) + "…" : name)
+      + '<span class="x" onclick="dropDoc(' + i + ', event)" title="Close">×</span></button>';
+  }).join("");
+}
 function loadDoc(){
   const s = store.get(DOC_KEY);
   if (!s) return false;
   try {
-    doc = normaliseHl(JSON.parse(s));
-    if (!doc || !doc.categories || !doc.categories.length) { doc = null; return false; }
-    $("topicInput").value = doc.topic || "";
-    $("answerStyle").value = doc.style || "exam";
-    render();
+    const parsed = JSON.parse(s);
+    if (parsed && parsed.v === 2 && Array.isArray(parsed.docs)){
+      docs = parsed.docs.map(normaliseHl).filter(d=> d && d.categories && d.categories.length);
+      activeIdx = Math.max(0, Math.min(parsed.active || 0, docs.length - 1));
+    } else if (parsed && parsed.categories && parsed.categories.length){
+      docs = [normaliseHl(parsed)]; activeIdx = 0;      // the older single-document save
+    } else return false;
+    if (!docs.length) return false;
+    doc = docs[activeIdx];
+    syncInputs(); render();
     return true;
-  } catch(e){ doc = null; return false; }
+  } catch(e){ docs = []; doc = null; return false; }
 }
 
 // ---------------- highlights ----------------
@@ -865,6 +946,22 @@ document.addEventListener("touchend", ()=>{
 });
 document.addEventListener("keydown", (e)=>{ if (e.key === "Escape") hideHlBar(); });
 
+// ---------------- jumping between a question and its answer ----------------
+// Real anchors, so the link survives into the PDF as well as working on screen.
+document.addEventListener("click", (e)=>{
+  const a = e.target.closest && e.target.closest("a.jump");
+  if (!a) return;
+  const target = document.getElementById(a.getAttribute("href").slice(1));
+  if (!target) return;
+  e.preventDefault();
+  target.scrollIntoView ? target.scrollIntoView({ behavior:"smooth", block:"center" })
+                        : window.location.hash = a.getAttribute("href");
+  target.classList.remove("landed");
+  void target.offsetWidth;               // restart the flash if it is still running
+  target.classList.add("landed");
+  setTimeout(()=> target.classList.remove("landed"), 1500);
+});
+
 // ---------------- rendering ----------------
 function esc(s){ return String(s).replace(/[&<>"]/g, c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[c])); }
 function badgeClass(p){ return p==="Must-have"?"b-must":(p==="Nice-to-have"?"b-nice":"b-should"); }
@@ -896,6 +993,7 @@ function mdToHtml(md){
 function render(){
   $("hero").style.display = "none";
   $("result").style.display = "block";
+  renderTabs();
   $("docTitle").textContent = doc.title || doc.topic || "Pasted outline";
   $("overviewText").textContent = doc.overview || "";
   $("answerPos").value = doc.answerPos || "inline";
@@ -954,9 +1052,14 @@ function renderCategory(i){
   if (c.description) html += '<div class="catdesc">' + esc(c.description) + '</div>';
   c.pages.forEach((p,j)=>{
     const showInline = p.quick && !atEnd;
-    html += '<div class="page' + (p.quick ? ' has-answers' : '') + '">'
-         +  '<div class="page-head"><span class="page-title">'
-         +  (atEnd ? '<span class="pageno">' + pageNo(i,j) + '</span> ' : '')
+    // only link the number when there is actually an entry to land on, otherwise the
+    // number is dead weight on a page nobody has answered yet
+    const inKey = atEnd && (p.quick || p.article);
+    const numHtml = !atEnd ? ""
+      : (inKey ? '<a class="pageno jump" href="#ans-' + i + '-' + j + '">' + pageNo(i,j) + '</a> '
+               : '<span class="pageno">' + pageNo(i,j) + '</span> ');
+    html += '<div class="page' + (p.quick ? ' has-answers' : '') + '" id="qn-' + i + '-' + j + '">'
+         +  '<div class="page-head"><span class="page-title">' + numHtml
          +  esc(p.title) + '</span>'
          +  '<span class="badge ' + badgeClass(p.priority) + '">' + esc(p.priority) + '</span></div>';
     // the questions line is dropped once the answers sit right below it, since the
@@ -970,7 +1073,8 @@ function renderCategory(i){
     } else if (p.quickLoading){
       html += '<div class="pulsing" style="font-size:13px;color:#555;margin-top:8px;">Getting quick answers…</div>';
     } else if (p.quick && atEnd){
-      html += '<div class="atend">Answer ' + pageNo(i,j) + ' is in the answer key</div>';
+      html += '<div class="atend"><a class="jump" href="#ans-' + i + '-' + j + '">Answer '
+           +  pageNo(i,j) + ' is in the answer key &rarr;</a></div>';
     }
     if (p.article && !atEnd){
       html += articleHtml(i, j, p);
@@ -998,8 +1102,10 @@ function renderAnswerKey(){
     c.pages.forEach((p,j)=>{
       if (!p.quick && !p.article) return;
       any = true;
-      html += '<div class="page"><div class="page-head"><span class="page-title">'
-           +  '<span class="pageno">' + pageNo(i,j) + '</span> ' + esc(p.title) + '</span></div>';
+      html += '<div class="page" id="ans-' + i + '-' + j + '"><div class="page-head">'
+           +  '<span class="page-title">'
+           +  '<a class="pageno jump" href="#qn-' + i + '-' + j + '">' + pageNo(i,j) + '</a> '
+           +  esc(p.title) + '</span></div>';
       if (p.quick) html += qaBlockHtml(i, j, p);
       if (p.article) html += articleHtml(i, j, p);
       html += '</div>';
@@ -1082,33 +1188,29 @@ $("stopBtn").addEventListener("click", ()=>{ stopFlag = true; setProgress("Stopp
 
 // ---------------- input ----------------
 function restoreDoc(d){
-  doc = normaliseHl(d);
-  $("topicInput").value = doc.topic || "";
-  $("answerStyle").value = doc.style || "exam";
-  setError(null); render(); saveDoc();
-  $("result").scrollIntoView({ behavior:"smooth", block:"start" });
+  setError(null);
+  addDoc(normaliseHl(d));                       // opens alongside anything already loaded
+  if ($("result").scrollIntoView) $("result").scrollIntoView({ behavior:"smooth", block:"start" });
 }
 // Opening a file we saved earlier: the embedded document is restored whole, so the
 // answers, deeper looks and highlights come back and answering can carry on. Any
 // other text file is treated as a fresh outline to parse.
+function ingestText(text){
+  const saved = docFromSavedHtml(text);
+  if (saved){ restoreDoc(saved); setProgress(null); return true; }
+  $("pasteBox").value = text;
+  if (/<html|<!DOCTYPE/i.test(text.slice(0, 400))){
+    setError("That HTML file has no saved outline in it - only pages saved from here can be reopened.");
+    return false;
+  }
+  $("parseBtn").click();
+  return true;
+}
 function ingestFile(file){
   if (!file) return;
+  // a dropped file cannot be written back to; setActive clears the handle anyway
   const reader = new FileReader();
-  reader.onload = ()=>{
-    const text = String(reader.result || "");
-    const saved = docFromSavedHtml(text);
-    if (saved){
-      restoreDoc(saved);
-      setProgress(null);
-      return;
-    }
-    $("pasteBox").value = text;
-    if (/<html|<!DOCTYPE/i.test(text.slice(0, 400))){
-      setError("That HTML file has no saved outline in it - only pages saved from here can be reopened.");
-      return;
-    }
-    $("parseBtn").click();
-  };
+  reader.onload = ()=> ingestText(String(reader.result || ""));
   reader.onerror = ()=> setError("Could not read that file.");
   reader.readAsText(file);
 }
@@ -1152,14 +1254,13 @@ $("parseBtn").addEventListener("click", ()=>{
   }
 
   setError(null);
-  doc = parsed;
-  doc.style = $("answerStyle").value;
-  doc.answerPos = store.get("answers_pos") || "inline";
-  doc.hl = {};
-  doc.topic = topic;
-  $("topicInput").value = topic;
-  render(); saveDoc();
-  $("result").scrollIntoView({ behavior:"smooth", block:"start" });
+  parsed.style = $("answerStyle").value;
+  parsed.answerPos = store.get("answers_pos") || "inline";
+  parsed.hl = {};
+  parsed.topic = topic;
+  addDoc(parsed);                                  // opens as another tab
+  $("pasteBox").value = "";
+  if ($("result").scrollIntoView) $("result").scrollIntoView({ behavior:"smooth", block:"start" });
 });
 $("hlbar").addEventListener("mousedown", (e)=> e.preventDefault());   // keep the selection alive
 $("hlbar").addEventListener("click", (e)=>{
@@ -1181,7 +1282,74 @@ $("clearHlBtn").addEventListener("click", ()=>{
 });
 $("topicInput").addEventListener("change", ()=>{ if (doc){ doc.topic = $("topicInput").value.trim() || doc.topic; saveDoc(); } });
 $("answerStyle").addEventListener("change", ()=>{ if (doc){ doc.style = $("answerStyle").value; saveDoc(); } });
-$("loadBtn").addEventListener("click", ()=> $("fileInput").click());
+// ---------------- writing back to the same file ----------------
+// The File System Access API can overwrite the file you opened, but it refuses to run
+// on an opaque origin - which is what a page opened by double-clicking (file://) has.
+// So this path lights up only when the app is served over http(s) or localhost in a
+// Chromium browser; everywhere else it falls back to a normal download.
+const CAN_WRITE_FILES =!!((typeof window.showOpenFilePicker === "function")
+                     && (typeof window.showSaveFilePicker === "function")
+                     && window.isSecureContext && location.protocol !== "file:");
+function setHandle(h){
+  handles[activeIdx] = h || null;
+  fileHandle = h || null;
+  showFileTarget();
+}
+function showFileTarget(){
+  const el = $("fileTarget");
+  if (fileHandle){
+    el.textContent = "Saving to " + fileHandle.name;
+    el.style.display = "block";
+    $("dlBtn").textContent = "Save";
+  } else {
+    el.style.display = "none";
+    $("dlBtn").textContent = "Save page as HTML";
+  }
+}
+async function ensureWritable(h){
+  if (!h.queryPermission) return true;
+  if (await h.queryPermission({ mode:"readwrite" }) === "granted") return true;
+  return await h.requestPermission({ mode:"readwrite" }) === "granted";
+}
+async function writeToHandle(h){
+  const w = await h.createWritable();
+  await w.write(pageHtml());
+  await w.close();
+}
+function downloadHtml(){
+  const blob = new Blob([pageHtml()], { type:"text/html" });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement("a");
+  a.href = url;
+  a.download = (doc.title || doc.topic || "answers").replace(/[^a-z0-9]+/gi,"-").toLowerCase() + ".html";
+  document.body.appendChild(a); a.click(); document.body.removeChild(a);
+  setTimeout(()=> URL.revokeObjectURL(url), 1000);
+}
+function flashSaved(msg){
+  const b = $("dlBtn"), was = b.textContent;
+  b.textContent = msg;
+  setTimeout(()=>{ b.textContent = was; showFileTarget(); }, 1600);
+}
+
+$("loadBtn").addEventListener("click", async ()=>{
+  if (CAN_WRITE_FILES){
+    try {
+      const [h] = await window.showOpenFilePicker({
+        types:[{ description:"Saved page", accept:{ "text/html":[".html",".htm"] } }],
+        multiple:false
+      });
+      const text = await (await h.getFile()).text();
+      // attach the handle after the document opens, so it lands on that document's
+      // slot - switching tabs then always points Save at the right file
+      if (ingestText(text)) setHandle(h);
+      return;
+    } catch(err){
+      if (err && err.name === "AbortError") return;      // user cancelled
+      /* anything else: fall through to the plain file input */
+    }
+  }
+  $("fileInput").click();
+});
 $("fileInput").addEventListener("change", (e)=>{
   ingestFile(e.target.files && e.target.files[0]);
   e.target.value = "";               // so the same file can be picked twice
@@ -1197,8 +1365,13 @@ $("pastePanel").addEventListener("drop", (e)=>{
   if (f) ingestFile(f);
 });
 $("clearBtn").addEventListener("click", ()=>{
-  if (!window.confirm("Delete the parsed outline and every saved answer?")) return;
-  store.del("answers_doc"); doc = null;
+  const n = docs.length;
+  if (!n){ setError("Nothing is loaded."); return; }
+  if (!window.confirm("Close " + (n > 1 ? "all " + n + " documents" : "this document")
+      + " and delete every saved answer and highlight?")) return;
+  docs = []; handles = []; doc = null; activeIdx = 0;
+  store.del(DOC_KEY);
+  renderTabs();
   $("result").style.display = "none"; $("hero").style.display = "block";
   $("pasteBox").value = ""; setError(null); setProgress(null);
 });
@@ -1254,6 +1427,18 @@ function pageHtml(){
     if (n.id !== "progressLine") n.remove();     // no stale "loading" text
   });
 
+  // Bake the viewer class in rather than relying on the script to add it: iOS Quick
+  // Look previews HTML with scripting disabled, and without this the paste panel and
+  // settings would show in a file that cannot use them.
+  clone.querySelector("body").className = "viewer";
+  // And with no script at all, hide every control that needs one. Inline <style>
+  // survives a Quick Look preview; only external stylesheets are dropped.
+  const ns = document.createElement("noscript");
+  ns.textContent = "<style>#exportArea,#hlbar,.pbtns,#pastePanel,#settingsPanel,"
+    + "#settingsToggle,.doctabs,#progressLine,#errLine{display:none!important}"
+    + ".atend{color:#b0b0b0;font-style:italic}</style>";
+  clone.querySelector("body").insertBefore(ns, clone.querySelector("body").firstChild);
+
   const old = q("#atlasdoc"); if (old) old.remove();
   // must sit in the head: the app script runs while the body is still parsing, so a
   // tag placed after it would not exist yet when start() looks for the document
@@ -1268,16 +1453,33 @@ function pageHtml(){
 
   return "<!DOCTYPE html>\n" + clone.outerHTML;
 }
-$("dlBtn").addEventListener("click", ()=>{
-  const blob = new Blob([pageHtml()], { type:"text/html" });
-  const url = URL.createObjectURL(blob);
-  const a = document.createElement("a");
-  a.href = url;
-  a.download = (doc.title || doc.topic || "answers").replace(/[^a-z0-9]+/gi,"-").toLowerCase() + ".html";
-  document.body.appendChild(a); a.click(); document.body.removeChild(a);
-  setTimeout(()=>URL.revokeObjectURL(url),1000);
-  $("dlBtn").textContent = "Saved ✓";
-  setTimeout(()=>{ $("dlBtn").textContent = "Save page as HTML"; }, 1800);
+$("dlBtn").addEventListener("click", async ()=>{
+  // straight back into the file that is open, when the browser allows it
+  if (fileHandle){
+    try {
+      if (await ensureWritable(fileHandle)){ await writeToHandle(fileHandle); flashSaved("Saved ✓"); return; }
+      setError("Permission to write that file was declined - saving a copy instead.");
+    } catch(err){ setError("Could not write to " + fileHandle.name + ": " + err.message); }
+  }
+  if (CAN_WRITE_FILES){
+    try {
+      const h = await window.showSaveFilePicker({
+        suggestedName: (doc.title || doc.topic || "answers").replace(/[^a-z0-9]+/gi,"-").toLowerCase() + ".html",
+        types:[{ description:"Saved page", accept:{ "text/html":[".html"] } }]
+      });
+      await writeToHandle(h);
+      setHandle(h); flashSaved("Saved ✓");
+      return;
+    } catch(err){
+      if (err && err.name === "AbortError") return;
+    }
+  }
+  downloadHtml();
+  flashSaved("Saved ✓");
+});
+$("saveAsBtn").addEventListener("click", ()=>{
+  setHandle(null);                          // next save asks where to put it
+  $("dlBtn").click();
 });
 // @page cannot be switched by a body class, so the chosen page box is injected as a
 // print-only rule that overrides the A4 default further up the cascade.
@@ -1343,8 +1545,8 @@ $("showTextBtn").addEventListener("click", ()=>{
       const later = store.get(DOC_KEY);
       if (later){ try { const l = JSON.parse(later); if (l && l.categories) d = l; } catch(e){} }
       doc = normaliseHl(d);
-      $("topicInput").value = doc.topic || "";
-      $("answerStyle").value = doc.style || "exam";
+      docs = [doc]; handles = [null]; activeIdx = 0;
+      syncInputs();
       render();
       return;
     }
