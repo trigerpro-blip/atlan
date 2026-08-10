@@ -1036,7 +1036,7 @@ function mergeOneDoc(l, r){
     if (!other) return c;
     const pages = (c.pages||[]).map((p, j)=> other.pages && other.pages[j] ? mergePages(p, other.pages[j]) : p);
     if (other.pages && other.pages.length > pages.length)
-      pages.push.apply(pages, other.pages.slice(pages.length));
+      other.pages.slice(pages.length).forEach(p=> pages.push(p));   // never .apply on a list
     return Object.assign({}, (newer === r ? other : c), { pages: pages });
   });
   if (rc.length > out.categories.length)
@@ -1068,7 +1068,16 @@ function mergeDocLists(local, remote){
 }
 
 function b64encode(str){
-  return btoa(String.fromCharCode.apply(null, new TextEncoder().encode(str)));
+  // Must be chunked. String.fromCharCode.apply passes every byte as a separate
+  // argument, so anything past roughly 100 KB - four outlines - overflows the call
+  // stack. 32 KB per call stays far inside the argument limit on every engine.
+  const bytes = new TextEncoder().encode(str);
+  const CHUNK = 0x8000;
+  let bin = "";
+  for (let i = 0; i < bytes.length; i += CHUNK){
+    bin += String.fromCharCode.apply(null, bytes.subarray(i, i + CHUNK));
+  }
+  return btoa(bin);
 }
 function b64decode(b64){
   const bin = atob(String(b64).replace(/\s/g,""));
@@ -1089,14 +1098,16 @@ function setSync(msg, kind){
   el.className = "syncstatus" + (kind ? " " + kind : "");
   el.style.display = "block";
 }
-async function ghFetch(method, body){
+async function ghFetch(method, body, raw){
   const c = syncCfg();
   const url = "https://api.github.com/repos/" + c.repo + "/contents/" + SYNC_PATH;
   const res = await fetch(url + (method === "GET" ? "?t=" + now() : ""), {
     method: method,
     cache: "no-store",
     headers: { "Authorization": "Bearer " + c.token,
-               "Accept": "application/vnd.github+json",
+               // over 1 MB the JSON envelope returns an empty content field, and only
+               // the raw media type will hand back the body
+               "Accept": raw ? "application/vnd.github.raw+json" : "application/vnd.github+json",
                "X-GitHub-Api-Version": "2022-11-28" },
     body: body ? JSON.stringify(body) : undefined
   });
@@ -1106,7 +1117,7 @@ async function ghFetch(method, body){
     try { const j = await res.json(); if (j.message) detail = j.message; } catch(e){}
     const err = new Error(detail); err.status = res.status; throw err;
   }
-  return await res.json();
+  return raw ? await res.text() : await res.json();
 }
 function syncError(e){
   if (e.status === 401) return "Sync: token rejected - check it has not expired.";
@@ -1125,16 +1136,22 @@ async function syncNow(opts){
   try {
     const remote = await ghFetch("GET");
     let sha = remote ? remote.sha : null;
-    if (remote && remote.content){
+    if (remote){
+      // Read the remote copy before writing anything. If it exists but cannot be
+      // read, stop - pushing here would overwrite the other device's work with a
+      // local-only copy, which is the one failure mode that actually loses data.
+      let text = null;
+      if (remote.content && remote.encoding !== "none") text = b64decode(remote.content);
+      else text = await ghFetch("GET", null, true);          // >1 MB: raw media type
       let theirs = null;
-      try { theirs = JSON.parse(b64decode(remote.content)); } catch(e){}
-      if (theirs && Array.isArray(theirs.docs)){
-        const activeId = doc && doc.id;
-        docs = mergeDocLists(docs, theirs.docs.map(normaliseHl));
-        const at = docs.findIndex(d=> d.id === activeId);
-        activeIdx = at >= 0 ? at : 0;
-        doc = docs[activeIdx] || null;
-      }
+      try { theirs = JSON.parse(text); } catch(e){}
+      if (!theirs || !Array.isArray(theirs.docs))
+        throw new Error("the synced file could not be read - nothing was overwritten");
+      const activeId = doc && doc.id;
+      docs = mergeDocLists(docs, theirs.docs.map(normaliseHl));
+      const at = docs.findIndex(d=> d.id === activeId);
+      activeIdx = at >= 0 ? at : 0;
+      doc = docs[activeIdx] || null;
     }
     const payload = JSON.stringify({ v:2, active:activeIdx, docs:docs, at:now() });
     const put = await ghFetch("PUT", {
@@ -1145,7 +1162,10 @@ async function syncNow(opts){
     store.set("sync_at", String(now()));
     if (put && put.content) store.set("sync_sha", put.content.sha);
     if (doc){ store.set(DOC_KEY, JSON.stringify({ v:2, active:activeIdx, docs:docs })); render(); }
-    setSync("Synced " + new Date().toLocaleTimeString(), null);
+    const kb = Math.round(payload.length / 1024);
+    setSync("Synced " + new Date().toLocaleTimeString() + " · " + docs.length
+      + (docs.length === 1 ? " document" : " documents") + " · " + kb + " KB"
+      + (kb > 3500 ? " · getting close to the browser storage limit" : ""), null);
     return true;
   } catch(e){
     setSync(syncError(e), "bad");
