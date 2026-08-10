@@ -53,6 +53,10 @@
   .linklike { background:none; border:none; padding:0 0 12px; font-size:13px; color:#767676; text-decoration:underline; }
   .filetarget { font-size:12.5px; color:#4a4a4a; background:#f2f2f2; border-radius:8px;
                 padding:7px 11px; margin-bottom:10px; }
+  .syncstatus { font-size:12.5px; border-radius:8px; padding:7px 11px; margin-top:10px;
+                background:#f2f2f2; color:#4a4a4a; }
+  .syncstatus.bad { background:#fdeaea; color:#8c1c1c; }
+  .syncstatus.busy { background:#eef4ff; color:#26467a; }
   #exportBox { width:100%; height:200px; padding:12px; font-size:13px; font-family:ui-monospace,SFMono-Regular,Menlo,monospace; line-height:1.5; border:1px solid #d9d9d9; border-radius:12px; background:#fafafa; color:#333; margin-bottom:12px; }
 
   section.cat { margin-top:28px; }
@@ -94,10 +98,16 @@
   mark.hl-6 { background:#dcc8ff; }   /* purple */
   mark.hl-7 { background:#a8ece4; }   /* teal   */
   mark.hl-8 { background:#e0e0e0; }   /* grey   */
+  /* fluorescent set - all kept high-luminance so black text stays legible on them */
+  mark.hl-9  { background:#f7ff00; }  /* neon yellow */
+  mark.hl-10 { background:#4dff88; }  /* neon green  */
+  mark.hl-11 { background:#40fff2; }  /* neon cyan   */
+  mark.hl-12 { background:#ff5cc8; }  /* neon pink   */
+  mark.hl-13 { background:#ffa02e; }  /* neon orange */
   mark.hl-u { text-decoration:underline; text-decoration-color:#d42b2b;
               text-decoration-thickness:2px; text-underline-offset:2px; }
   #hlbar { position:absolute; z-index:60; display:none; gap:7px; align-items:center;
-           flex-wrap:wrap; max-width:min(272px, 92vw);
+           flex-wrap:wrap; justify-content:center; max-width:min(232px, 92vw);
            background:#111; padding:9px 11px; border-radius:16px;
            box-shadow:0 6px 20px rgba(0,0,0,.28); }
   #hlbar .sw { width:21px; height:21px; padding:0; border-radius:50%;
@@ -107,6 +117,10 @@
   #hlbar .sw-3 { background:#b3ddff; } #hlbar .sw-4 { background:#ffc2da; }
   #hlbar .sw-5 { background:#ffcb96; } #hlbar .sw-6 { background:#dcc8ff; }
   #hlbar .sw-7 { background:#a8ece4; } #hlbar .sw-8 { background:#e0e0e0; }
+  #hlbar .sw-9 { background:#f7ff00; } #hlbar .sw-10 { background:#4dff88; }
+  #hlbar .sw-11 { background:#40fff2; } #hlbar .sw-12 { background:#ff5cc8; }
+  #hlbar .sw-13 { background:#ffa02e; }
+  #hlbar .rule { flex:0 0 100%; height:1px; background:rgba(255,255,255,.18); margin:1px 0; }
   #hlbar .txtbtn { background:none; border:1px solid rgba(255,255,255,.45); color:#fff;
                    border-radius:999px; font-size:12px; padding:3px 11px; }
   #hlbar .ulbtn { text-decoration:underline; text-decoration-color:#ff6b6b;
@@ -251,11 +265,27 @@
     <select id="modelName"></select>
     <input type="text" id="customModel" placeholder="Type an exact model name" style="display:none;margin-top:6px;">
     <p class="hint" id="providerHint"></p>
+
+    <div style="border-top:1px solid #e5e5e5;margin:16px 0 0;padding-top:14px;">
+      <div style="font-size:15px;font-weight:600;">Sync across your devices (optional)</div>
+      <label for="syncRepo">Private repo</label>
+      <input type="text" id="syncRepo" placeholder="your-name/atlas-sync" autocomplete="off">
+      <label for="syncToken">GitHub token</label>
+      <input type="password" id="syncToken" placeholder="github_pat_…" autocomplete="off">
+      <div class="row" style="margin:12px 0 0;">
+        <button class="btn-outline" id="syncNowBtn">Sync now</button>
+      </div>
+      <div class="syncstatus" id="syncStatus" style="display:none;"></div>
+      <p class="hint">Create an <strong>empty private repo</strong> and a fine-grained token with
+        <em>Contents: read and write</em> on just that repo, then paste both here on each device.
+        Work merges page by page, so answering on your phone and highlighting on your laptop both survive.
+        <strong>Do not use your public Pages repo</strong> &mdash; your notes would be readable by anyone.</p>
+    </div>
   </div>
 
   <div class="panel" id="pastePanel">
     <div style="font-size:15px;font-weight:600;">Paste a taxonomy</div>
-    <label for="topicInput">Topic (used as context for every answer)</label>
+    <label for="topicInput">Topic of the outline you are pasting</label>
     <input type="text" id="topicInput" placeholder="e.g. Craniopharyngioma: imaging features">
     <label for="answerStyle">Answer style</label>
     <select id="answerStyle">
@@ -314,7 +344,8 @@
         </div>
         <p class="hint" style="margin:0 0 10px;">Questions-only prints the outline as a self-test sheet. The answers PDF adds the quick answers, plus any deeper looks you have written. On the iPhone page size, turn off headers and footers and set margins to None in the print dialog. Saving as HTML keeps a working copy &mdash; highlighting and both PDF exports still run in it, without your API key.</p>
         <div class="filetarget" id="fileTarget" style="display:none;"></div>
-        <button class="linklike" id="showTextBtn">Show text to select manually</button>
+        <button class="linklike" id="renameBtn">Rename this document</button>
+        <button class="linklike" id="showTextBtn" style="margin-left:14px;">Show text to select manually</button>
         <button class="linklike" id="saveAsBtn" style="margin-left:14px;">Save as a new file</button>
         <button class="linklike" id="clearHlBtn" style="margin-left:14px;">Clear all highlights</button>
         <textarea id="exportBox" readonly style="display:none;"></textarea>
@@ -334,6 +365,13 @@
     <button class="sw sw-6" data-fill="6" title="Purple"></button>
     <button class="sw sw-7" data-fill="7" title="Teal"></button>
     <button class="sw sw-8" data-fill="8" title="Grey"></button>
+    <span class="rule"></span>
+    <button class="sw sw-9" data-fill="9" title="Neon yellow"></button>
+    <button class="sw sw-10" data-fill="10" title="Neon green"></button>
+    <button class="sw sw-11" data-fill="11" title="Neon cyan"></button>
+    <button class="sw sw-12" data-fill="12" title="Neon pink"></button>
+    <button class="sw sw-13" data-fill="13" title="Neon orange"></button>
+    <span class="rule"></span>
     <button class="txtbtn ulbtn" data-ul="1" title="Red underline - stacks on any colour">Underline</button>
     <button class="txtbtn" data-fill="0" title="Remove colour, keep the underline">No fill</button>
     <button class="txtbtn" data-clear="1" title="Remove colour and underline">Clear</button>
@@ -425,7 +463,12 @@ $("settingsToggle").addEventListener("click", ()=>{
   const p = $("settingsPanel");
   p.style.display = p.style.display === "none" ? "block" : "none";
 });
+$("syncRepo").addEventListener("change", ()=>{ store.set("sync_repo", $("syncRepo").value.trim()); });
+$("syncToken").addEventListener("change", ()=>{ store.set("sync_token", $("syncToken").value.trim()); });
+$("syncNowBtn").addEventListener("click", ()=> syncNow());
 loadSettings();
+$("syncRepo").value = store.get("sync_repo") || "";
+$("syncToken").value = store.get("sync_token") || "";
 
 // ---------------- model call ----------------
 const sleep = (ms)=> new Promise(r=>setTimeout(r,ms));
@@ -710,7 +753,11 @@ function parseTaxonomy(raw){
 let VIEWER = false, DOC_KEY = "answers_doc";
 let fileHandle = null, handles = [];      // handles[i] belongs to docs[i]
 function normaliseHl(d){
-  if (!d || !d.hl) return d;
+  if (!d) return d;
+  if (!d.id) d.id = uid();                    // documents saved before sync existed
+  if (!d.updatedAt) d.updatedAt = 0;
+  if (!d.hlAt) d.hlAt = {};
+  if (!d.hl) return d;
   Object.keys(d.hl).forEach(k=>{
     d.hl[k] = tidy((d.hl[k]||[]).map(r=> [r[0], r[1], r[2]|0, r[3]|0]));   // pad legacy [s,e,fill]
     if (!d.hl[k].length) delete d.hl[k];
@@ -727,9 +774,10 @@ function saveDoc(){
   if (!docs.length){ store.del(DOC_KEY); return; }
   const ok = store.set(DOC_KEY, JSON.stringify({ v:2, active:activeIdx, docs:docs }));
   if (!ok) setError("Browser storage is full - close a document, or save one as HTML and clear it.");
+  schedulePush();
 }
 function syncInputs(){
-  $("topicInput").value = (doc && doc.topic) || "";
+  // topicInput is not touched here: it describes the next paste, not the open document
   $("answerStyle").value = (doc && doc.style) || "exam";
 }
 function setActive(i){
@@ -798,7 +846,10 @@ let hlPending = null;        // [{key, start, end}] captured from the live selec
 function hlRanges(key){ return (doc && doc.hl && doc.hl[key]) || []; }
 function setRanges(key, list){
   if (!doc.hl) doc.hl = {};
+  if (!doc.hlAt) doc.hlAt = {};
   if (list && list.length) doc.hl[key] = list; else delete doc.hl[key];
+  doc.hlAt[key] = now();      // kept even when cleared, so the deletion syncs too
+  stampDoc(doc);
 }
 // A range is [start, end, fill, underline]. Fill (0-8) and underline (0/1) are
 // independent, so a red underline stacks on top of any colour instead of replacing
@@ -961,6 +1012,151 @@ document.addEventListener("click", (e)=>{
   target.classList.add("landed");
   setTimeout(()=> target.classList.remove("landed"), 1500);
 });
+
+// ---------------- sync ----------------
+// One JSON file in a private repo is the shared state. Everything carries a
+// timestamp so two devices can be merged without a merge UI: documents union by id,
+// pages take whichever side was touched last, highlights the same per block.
+const now = ()=> Date.now();
+function uid(){ return "d" + Math.random().toString(36).slice(2,10) + now().toString(36); }
+function stampDoc(d){ if (d){ d.updatedAt = now(); if (!d.id) d.id = uid(); } }
+function stampPage(i, j){
+  const p = doc && doc.categories[i] && doc.categories[i].pages[j];
+  if (p) p.updatedAt = now();
+  stampDoc(doc);
+}
+function mergePages(lp, rp){ return (rp.updatedAt||0) > (lp.updatedAt||0) ? rp : lp; }
+function mergeOneDoc(l, r){
+  const newer = (r.updatedAt||0) > (l.updatedAt||0) ? r : l;
+  const out = Object.assign({}, newer);
+  // the outline itself does not change after parsing, so pages line up by position
+  const lc = l.categories||[], rc = r.categories||[];
+  out.categories = lc.map((c, i)=>{
+    const other = rc[i];
+    if (!other) return c;
+    const pages = (c.pages||[]).map((p, j)=> other.pages && other.pages[j] ? mergePages(p, other.pages[j]) : p);
+    if (other.pages && other.pages.length > pages.length)
+      pages.push.apply(pages, other.pages.slice(pages.length));
+    return Object.assign({}, (newer === r ? other : c), { pages: pages });
+  });
+  if (rc.length > out.categories.length)
+    out.categories = out.categories.concat(rc.slice(out.categories.length));
+  // highlights: hlAt keeps a stamp even for cleared blocks, so a deletion on one
+  // device is not undone by a stale copy on the other
+  const hl = {}, hlAt = {};
+  const keys = new Set(Object.keys(l.hlAt||{}).concat(Object.keys(r.hlAt||{}),
+                       Object.keys(l.hl||{}), Object.keys(r.hl||{})));
+  keys.forEach(k=>{
+    const lt = (l.hlAt||{})[k] || 0, rt = (r.hlAt||{})[k] || 0;
+    const win = rt > lt ? r : l;
+    const ts = Math.max(lt, rt);
+    if (win.hl && win.hl[k] && win.hl[k].length){ hl[k] = win.hl[k]; }
+    if (ts) hlAt[k] = ts;
+  });
+  out.hl = hl; out.hlAt = hlAt;
+  return out;
+}
+function mergeDocLists(local, remote){
+  const out = [], seen = {};
+  (local||[]).forEach(d=>{ if (d && d.id){ seen[d.id] = out.length; out.push(d); } else if (d) out.push(d); });
+  (remote||[]).forEach(r=>{
+    if (!r || !r.id) return;
+    if (seen[r.id] === undefined){ seen[r.id] = out.length; out.push(r); }
+    else out[seen[r.id]] = mergeOneDoc(out[seen[r.id]], r);
+  });
+  return out;
+}
+
+function b64encode(str){
+  return btoa(String.fromCharCode.apply(null, new TextEncoder().encode(str)));
+}
+function b64decode(b64){
+  const bin = atob(String(b64).replace(/\s/g,""));
+  const bytes = new Uint8Array(bin.length);
+  for (let i=0;i<bin.length;i++) bytes[i] = bin.charCodeAt(i);
+  return new TextDecoder().decode(bytes);
+}
+const SYNC_PATH = "atlas-state.json";
+function syncCfg(){
+  return { repo: ($("syncRepo").value||"").trim().replace(/^https?:\/\/github\.com\//,"").replace(/\/+$/,""),
+           token: ($("syncToken").value||"").trim() };
+}
+function syncOn(){ const c = syncCfg(); return !VIEWER && !!c.repo && !!c.token && /.+\/.+/.test(c.repo); }
+function setSync(msg, kind){
+  const el = $("syncStatus");
+  if (!msg){ el.style.display = "none"; return; }
+  el.textContent = msg;
+  el.className = "syncstatus" + (kind ? " " + kind : "");
+  el.style.display = "block";
+}
+async function ghFetch(method, body){
+  const c = syncCfg();
+  const url = "https://api.github.com/repos/" + c.repo + "/contents/" + SYNC_PATH;
+  const res = await fetch(url + (method === "GET" ? "?t=" + now() : ""), {
+    method: method,
+    cache: "no-store",
+    headers: { "Authorization": "Bearer " + c.token,
+               "Accept": "application/vnd.github+json",
+               "X-GitHub-Api-Version": "2022-11-28" },
+    body: body ? JSON.stringify(body) : undefined
+  });
+  if (res.status === 404 && method === "GET") return null;      // first ever sync
+  if (!res.ok){
+    let detail = "HTTP " + res.status;
+    try { const j = await res.json(); if (j.message) detail = j.message; } catch(e){}
+    const err = new Error(detail); err.status = res.status; throw err;
+  }
+  return await res.json();
+}
+function syncError(e){
+  if (e.status === 401) return "Sync: token rejected - check it has not expired.";
+  if (e.status === 404) return "Sync: repo not found, or the token cannot see it.";
+  if (e.status === 403) return "Sync: access refused - the token needs Contents read and write.";
+  if (e.status === 409 || e.status === 422) return "Sync: the file changed elsewhere - press Sync now again.";
+  return "Sync failed: " + e.message;
+}
+let syncing = false, pushTimer = null;
+async function syncNow(opts){
+  const quiet = opts && opts.quiet;
+  if (!syncOn()){ if (!quiet) setSync("Add a repo and a token above first.", "bad"); return false; }
+  if (syncing) return false;
+  syncing = true;
+  setSync(quiet ? "Syncing…" : "Checking the other device…", "busy");
+  try {
+    const remote = await ghFetch("GET");
+    let sha = remote ? remote.sha : null;
+    if (remote && remote.content){
+      let theirs = null;
+      try { theirs = JSON.parse(b64decode(remote.content)); } catch(e){}
+      if (theirs && Array.isArray(theirs.docs)){
+        const activeId = doc && doc.id;
+        docs = mergeDocLists(docs, theirs.docs.map(normaliseHl));
+        const at = docs.findIndex(d=> d.id === activeId);
+        activeIdx = at >= 0 ? at : 0;
+        doc = docs[activeIdx] || null;
+      }
+    }
+    const payload = JSON.stringify({ v:2, active:activeIdx, docs:docs, at:now() });
+    const put = await ghFetch("PUT", {
+      message: "atlas: " + docs.length + " document(s) " + new Date().toISOString(),
+      content: b64encode(payload),
+      sha: sha || undefined
+    });
+    store.set("sync_at", String(now()));
+    if (put && put.content) store.set("sync_sha", put.content.sha);
+    if (doc){ store.set(DOC_KEY, JSON.stringify({ v:2, active:activeIdx, docs:docs })); render(); }
+    setSync("Synced " + new Date().toLocaleTimeString(), null);
+    return true;
+  } catch(e){
+    setSync(syncError(e), "bad");
+    return false;
+  } finally { syncing = false; }
+}
+function schedulePush(){
+  if (!syncOn()) return;
+  clearTimeout(pushTimer);
+  pushTimer = setTimeout(()=> syncNow({ quiet:true }), 4000);
+}
 
 // ---------------- rendering ----------------
 function esc(s){ return String(s).replace(/[&<>"]/g, c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[c])); }
@@ -1145,7 +1341,8 @@ window.getQuick = async function(i, j){
     p.error = friendlyErr(e);
     if (e.message === "NOKEY") $("settingsPanel").style.display = "block";
   }
-  p.quickLoading = false; renderCategory(i); renderAnswerKey(); updateMeta(); saveDoc();
+  p.quickLoading = false; stampPage(i, j);
+  renderCategory(i); renderAnswerKey(); updateMeta(); saveDoc();
 };
 window.getDeep = async function(i, j){
   const c = doc.categories[i], p = c.pages[j];
@@ -1159,7 +1356,8 @@ window.getDeep = async function(i, j){
     p.error = friendlyErr(e);
     if (e.message === "NOKEY") $("settingsPanel").style.display = "block";
   }
-  p.articleLoading = false; renderCategory(i); renderAnswerKey(); updateMeta(); saveDoc();
+  p.articleLoading = false; stampPage(i, j);
+  renderCategory(i); renderAnswerKey(); updateMeta(); saveDoc();
 };
 
 $("answerAllBtn").addEventListener("click", async ()=>{
@@ -1256,10 +1454,11 @@ $("parseBtn").addEventListener("click", ()=>{
   setError(null);
   parsed.style = $("answerStyle").value;
   parsed.answerPos = store.get("answers_pos") || "inline";
-  parsed.hl = {};
+  parsed.hl = {}; parsed.hlAt = {};
   parsed.topic = topic;
+  parsed.id = uid(); stampDoc(parsed);
   addDoc(parsed);                                  // opens as another tab
-  $("pasteBox").value = "";
+  $("pasteBox").value = ""; $("topicInput").value = "";
   if ($("result").scrollIntoView) $("result").scrollIntoView({ behavior:"smooth", block:"start" });
 });
 $("hlbar").addEventListener("mousedown", (e)=> e.preventDefault());   // keep the selection alive
@@ -1280,7 +1479,19 @@ $("clearHlBtn").addEventListener("click", ()=>{
   if (!window.confirm("Remove every highlight in this document?")) return;
   doc.hl = {}; setError(null); render(); saveDoc();
 });
-$("topicInput").addEventListener("change", ()=>{ if (doc){ doc.topic = $("topicInput").value.trim() || doc.topic; saveDoc(); } });
+// NOTE: the topic box belongs to the outline you are about to paste. It deliberately
+// does not write into the open document - doing so meant typing the next topic
+// silently renamed the document already on screen, and both tabs ended up identical.
+$("renameBtn").addEventListener("click", ()=>{
+  if (!doc) return;
+  const current = doc.title || doc.topic || "";
+  const next = window.prompt("Name for this document (also the context used for new answers):", current);
+  if (next === null) return;
+  const clean = next.trim();
+  if (!clean) return;
+  doc.title = clean; doc.topic = clean;
+  stampDoc(doc); render(); saveDoc();
+});
 $("answerStyle").addEventListener("change", ()=>{ if (doc){ doc.style = $("answerStyle").value; saveDoc(); } });
 // ---------------- writing back to the same file ----------------
 // The File System Access API can overwrite the file you opened, but it refuses to run
@@ -1552,6 +1763,8 @@ $("showTextBtn").addEventListener("click", ()=>{
     }
   }
   loadDoc();
+  // pull whatever the other device left behind, then push anything only here
+  if (syncOn()) syncNow({ quiet:true });
 })();
 </script>
 </body>
