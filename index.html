@@ -767,12 +767,16 @@ function normaliseHl(d){
 // Several outlines can be open at once - one you are revising, another you are
 // reading - so the working set is an array with an active index. `doc` still points
 // at the active one, which is why the rest of the app needed no changes.
-let docs = [], activeIdx = 0;
+let docs = [], activeIdx = 0, closedDocs = {};
 
+function stateJson(){
+  return JSON.stringify({ v:2, active:activeIdx, docs:docs, closed:closedDocs });
+}
 function saveDoc(){
   if (VIEWER){ if (doc) store.set(DOC_KEY, JSON.stringify(doc)); return; }
-  if (!docs.length){ store.del(DOC_KEY); return; }
-  const ok = store.set(DOC_KEY, JSON.stringify({ v:2, active:activeIdx, docs:docs }));
+  // even with no documents left the tombstones must persist, or the next sync pulls
+  // the closed ones straight back
+  const ok = store.set(DOC_KEY, stateJson());
   if (!ok) setError("Browser storage is full - close a document, or save one as HTML and clear it.");
   schedulePush();
 }
@@ -794,12 +798,14 @@ function addDoc(d){
   setActive(docs.length - 1);
 }
 function closeDoc(i){
+  const gone = docs[i];
+  if (gone && gone.id) closedDocs[gone.id] = now();    // remember it was closed on purpose
   docs.splice(i, 1); handles.splice(i, 1);
   if (!docs.length){
     doc = null; activeIdx = 0;
     $("result").style.display = "none";
     $("hero").style.display = "block";
-    store.del(DOC_KEY);
+    saveDoc();                                          // keeps the tombstones, pushes them
     renderTabs();
     return;
   }
@@ -825,6 +831,7 @@ function loadDoc(){
     const parsed = JSON.parse(s);
     if (parsed && parsed.v === 2 && Array.isArray(parsed.docs)){
       docs = parsed.docs.map(normaliseHl).filter(d=> d && d.categories && d.categories.length);
+      closedDocs = parsed.closed || {};
       activeIdx = Math.max(0, Math.min(parsed.active || 0, docs.length - 1));
     } else if (parsed && parsed.categories && parsed.categories.length){
       docs = [normaliseHl(parsed)]; activeIdx = 0;      // the older single-document save
@@ -1056,6 +1063,30 @@ function mergeOneDoc(l, r){
   out.hl = hl; out.hlAt = hlAt;
   return out;
 }
+// Closing a tab has to be recorded, not just done. A plain union cannot tell a
+// document you deleted from one the other device has not seen yet, so a closed tab
+// came back on the next sync. Each close leaves a timestamp; a document is dropped
+// only if it was closed *after* its last edit, so work done elsewhere still wins.
+function mergeClosed(a, b){
+  const out = Object.assign({}, a || {});
+  Object.keys(b || {}).forEach(k=>{ if (!out[k] || b[k] > out[k]) out[k] = b[k]; });
+  return out;
+}
+function applyClosed(list, closed){
+  const keep = [];
+  (list||[]).forEach(d=>{
+    const ts = closed[d.id];
+    if (ts && (d.updatedAt || 0) <= ts) return;      // closed, and untouched since
+    if (ts) delete closed[d.id];                     // edited after closing: it lives on
+    keep.push(d);
+  });
+  return keep;
+}
+function pruneClosed(closed, days){
+  const cutoff = now() - (days || 90) * 86400000;
+  Object.keys(closed).forEach(k=>{ if (closed[k] < cutoff) delete closed[k]; });
+  return closed;
+}
 function mergeDocLists(local, remote){
   const out = [], seen = {};
   (local||[]).forEach(d=>{ if (d && d.id){ seen[d.id] = out.length; out.push(d); } else if (d) out.push(d); });
@@ -1148,12 +1179,14 @@ async function syncNow(opts){
       if (!theirs || !Array.isArray(theirs.docs))
         throw new Error("the synced file could not be read - nothing was overwritten");
       const activeId = doc && doc.id;
-      docs = mergeDocLists(docs, theirs.docs.map(normaliseHl));
+      closedDocs = pruneClosed(mergeClosed(closedDocs, theirs.closed), 90);
+      docs = applyClosed(mergeDocLists(docs, theirs.docs.map(normaliseHl)), closedDocs);
       const at = docs.findIndex(d=> d.id === activeId);
       activeIdx = at >= 0 ? at : 0;
       doc = docs[activeIdx] || null;
+      if (!docs.length){ $("result").style.display = "none"; $("hero").style.display = "block"; }
     }
-    const payload = JSON.stringify({ v:2, active:activeIdx, docs:docs, at:now() });
+    const payload = JSON.stringify({ v:2, active:activeIdx, docs:docs, closed:closedDocs, at:now() });
     const put = await ghFetch("PUT", {
       message: "atlas: " + docs.length + " document(s) " + new Date().toISOString(),
       content: b64encode(payload),
@@ -1161,11 +1194,14 @@ async function syncNow(opts){
     });
     store.set("sync_at", String(now()));
     if (put && put.content) store.set("sync_sha", put.content.sha);
-    if (doc){ store.set(DOC_KEY, JSON.stringify({ v:2, active:activeIdx, docs:docs })); render(); }
+    store.set(DOC_KEY, stateJson());
+    if (doc) render(); else renderTabs();
     const kb = Math.round(payload.length / 1024);
+    // Some browsers count localStorage in UTF-16 units, so the usable budget can be
+    // about half the quoted 5 MB. Warn from 2 MB rather than pretending 5 is safe.
     setSync("Synced " + new Date().toLocaleTimeString() + " · " + docs.length
       + (docs.length === 1 ? " document" : " documents") + " · " + kb + " KB"
-      + (kb > 3500 ? " · getting close to the browser storage limit" : ""), null);
+      + (kb > 2000 ? " · nearing the browser storage budget: save finished topics as HTML and close them" : ""), null);
     return true;
   } catch(e){
     setSync(syncError(e), "bad");
@@ -1599,9 +1635,11 @@ $("clearBtn").addEventListener("click", ()=>{
   const n = docs.length;
   if (!n){ setError("Nothing is loaded."); return; }
   if (!window.confirm("Close " + (n > 1 ? "all " + n + " documents" : "this document")
-      + " and delete every saved answer and highlight?")) return;
+      + " and delete every saved answer and highlight?"
+      + (syncOn() ? "\n\nSync is on, so this removes them from your other devices too." : ""))) return;
+  docs.forEach(d=>{ if (d && d.id) closedDocs[d.id] = now(); });
   docs = []; handles = []; doc = null; activeIdx = 0;
-  store.del(DOC_KEY);
+  saveDoc();
   renderTabs();
   $("result").style.display = "none"; $("hero").style.display = "block";
   $("pasteBox").value = ""; setError(null); setProgress(null);
