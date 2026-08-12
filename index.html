@@ -542,13 +542,78 @@ const VOICE = {
     deep: "start with the plain-language idea, introduce the correct technical term as you go, then give the concrete specifics - numbers, thresholds, eponyms, named examples and mechanisms. Use a brief analogy only where it genuinely clarifies a mechanism."
   }
 };
+const NO_TEX = "Write every number, unit and symbol as plain text: 1.5 T, 64 MHz, 10 mm, 0.1 mmol/kg, ×, ≈, ±, °, µ. "
+  + "Never use LaTeX or TeX: no $ or $$ delimiters, no \\text{}, \\frac{}, \\times, \\approx or any backslash command. "
+  + "This is rendered as plain prose, so maths markup shows up as raw code.";
 function qList(page){ return page.questions.map((q,i)=>(i+1)+". "+q).join("\n"); }
+
+// The models reach for LaTeX whichever way you ask, so answers are also cleaned on
+// the way in and on the way out. Only strings holding an actual TeX command are
+// touched, so prices like "$50" and ordinary underscores are left alone.
+const TEX_SYM = { "\\times":"×", "\\approx":"≈", "\\leq":"≤", "\\le":"≤", "\\geq":"≥", "\\ge":"≥",
+  "\\neq":"≠", "\\pm":"±", "\\mp":"∓", "\\cdot":"·", "\\sim":"~", "\\infty":"∞",
+  "\\rightarrow":"→", "\\to":"→", "\\leftarrow":"←", "\\circ":"°", "\\degree":"°",
+  "\\alpha":"α", "\\beta":"β", "\\gamma":"γ", "\\delta":"δ", "\\Delta":"Δ", "\\mu":"µ",
+  "\\sigma":"σ", "\\lambda":"λ", "\\%":"%", "\\&":"&", "\\#":"#", "\\$":"$" };
+const SUP = "⁰¹²³⁴⁵⁶⁷⁸⁹", SUB = "₀₁₂₃₄₅₆₇₈₉";
+function scriptify(x, map){
+  if (x == null) return "";
+  if (/^\d+$/.test(x)) return x.split("").map(c=> map[+c]).join("");
+  return x;                                             // e.g. ^{°} -> °, T_max -> Tmax
+}
+function deTeX(s){
+  if (typeof s !== "string" || !s) return s;
+  const hasCommand = /\\[a-zA-Z]|\\[[\](){}]/.test(s);
+  // $T_1$ and $B_0$ carry no backslash at all, so a command test alone misses them.
+  // A $…$ pair counts as maths only when it contains a backslash, _ or ^ - which is
+  // what keeps prices like "$50 to run" untouched.
+  const hasMathPair = /\$[^$\n]*[\\_^][^$\n]*\$/.test(s);
+  if (!hasCommand && !hasMathPair) return s;
+  let t = s;
+  t = t.replace(/\$([^$\n]*[\\_^][^$\n]*)\$/g, "$1");   // unwrap maths pairs
+  t = t.replace(/\\\[|\\\]|\\\(|\\\)/g, " ");           // \[ \] \( \) delimiters
+  t = t.replace(/\\text\s*\{([^{}]*)\}/g, "$1");
+  t = t.replace(/\\(?:mathrm|mathbf|textbf|textit|emph|operatorname)\s*\{([^{}]*)\}/g, "$1");
+  t = t.replace(/\\frac\s*\{([^{}]*)\}\s*\{([^{}]*)\}/g, "$1/$2");
+  t = t.replace(/\\sqrt\s*\{([^{}]*)\}/g, "√($1)");
+  Object.keys(TEX_SYM).forEach(k=>{ t = t.split(k).join(TEX_SYM[k]); });
+  t = t.replace(/\^\{([^{}]{1,6})\}|\^(\w)/g, (m,a,b)=> scriptify(a != null ? a : b, SUP));
+  t = t.replace(/_\{([^{}]{1,6})\}|_(\w)/g,   (m,a,b)=> scriptify(a != null ? a : b, SUB));
+  t = t.replace(/\\[,;:!\s]/g, " ");                    // thin spaces
+  t = t.replace(/\$\$?/g, "");                          // now safe: this string was TeX
+  t = t.replace(/[ \t]{2,}/g, " ");
+  return t.trim();
+}
+// clean answers already stored, and drop highlights only on the blocks whose text
+// actually moved - their character offsets would otherwise point at the wrong words
+function cleanTeXInDoc(d){
+  let changed = 0;
+  (d.categories||[]).forEach((c,i)=> (c.pages||[]).forEach((p,j)=>{
+    p.questions = (p.questions||[]).map((q,k)=>{
+      const v = deTeX(q);
+      if (v !== q){ changed++; if (d.hl) delete d.hl[hk(i,j,"q",k)]; }
+      return v;
+    });
+    if (p.quick) p.quick = p.quick.map((a,k)=>{
+      const v = deTeX(a);
+      if (v !== a){ changed++; if (d.hl) delete d.hl[hk(i,j,"a",k)]; }
+      return v;
+    });
+    if (p.article){
+      const v = deTeX(p.article);
+      if (v !== p.article){ changed++; if (d.hl) delete d.hl[hk(i,j,"art")]; }
+      p.article = v;
+    }
+  }));
+  return changed;
+}
 
 function quickPrompt(page, catName){
   const v = VOICE[doc.style] || VOICE.exam;
   return 'You are answering revision questions for ' + v.who + ' studying "' + doc.topic + '".'
     + ' Section: "' + catName + '", page: "' + page.title + '".\n\n'
     + v.quick + ' No hedging, no filler, no restating the question. Accuracy matters more than brevity, but stay tight.\n\n'
+    + NO_TEX + '\n\n'
     + 'Questions:\n' + qList(page)
     + '\n\nRespond with ONLY a JSON object with one answer per question, in order:\n{ "answers": ["...", "..."] }';
 }
@@ -563,7 +628,8 @@ function deepPrompt(page, catName){
     + '- Under each: ' + v.deep + '\n'
     + '- Define any jargon at first use, in-line, in a few words. Never pad.\n'
     + '- Finish with a "#### Key points" section: 3-4 tight bullets carrying the facts worth memorising, each containing a specific.\n\n'
-    + 'Around 400-550 words. Accurate and specific throughout - no vague filler, no hedging. No preamble, start directly with the intro.';
+    + 'Around 400-550 words. Accurate and specific throughout - no vague filler, no hedging. No preamble, start directly with the intro.\n\n'
+    + NO_TEX;
 }
 
 // ---------------- parser ----------------
@@ -757,6 +823,7 @@ function normaliseHl(d){
   if (!d.id) d.id = uid();                    // documents saved before sync existed
   if (!d.updatedAt) d.updatedAt = 0;
   if (!d.hlAt) d.hlAt = {};
+  if (!d.texClean){ cleanTeXInDoc(d); d.texClean = 1; }   // strip maths markup once
   if (!d.hl) return d;
   Object.keys(d.hl).forEach(k=>{
     d.hl[k] = tidy((d.hl[k]||[]).map(r=> [r[0], r[1], r[2]|0, r[3]|0]));   // pad legacy [s,e,fill]
@@ -769,6 +836,44 @@ function normaliseHl(d){
 // at the active one, which is why the rest of the app needed no changes.
 let docs = [], activeIdx = 0, closedDocs = {};
 
+// IndexedDB rather than localStorage for the documents: localStorage is capped around
+// 5 MB per origin (less where it counts UTF-16), which 15 outlines with deeper looks
+// would exceed. IndexedDB is quota-managed in the hundreds of MB. Settings and keys
+// stay in localStorage - they are tiny and needed synchronously.
+const IDB_NAME = "atlasAnswers", IDB_STORE = "state";
+let idb = null, dirty = false;
+function idbOpen(){
+  return new Promise(res=>{
+    try {
+      if (!window.indexedDB) return res(null);
+      const rq = indexedDB.open(IDB_NAME, 1);
+      rq.onupgradeneeded = ()=> rq.result.createObjectStore(IDB_STORE);
+      rq.onsuccess = ()=> res(rq.result);
+      rq.onerror = ()=> res(null);
+      rq.onblocked = ()=> res(null);
+    } catch(e){ res(null); }
+  });
+}
+function idbGet(key){
+  return new Promise(res=>{
+    if (!idb) return res(null);
+    try {
+      const rq = idb.transaction(IDB_STORE, "readonly").objectStore(IDB_STORE).get(key);
+      rq.onsuccess = ()=> res(rq.result || null);
+      rq.onerror = ()=> res(null);
+    } catch(e){ res(null); }
+  });
+}
+function idbSet(key, val){
+  return new Promise(res=>{
+    if (!idb) return res(false);
+    try {
+      const rq = idb.transaction(IDB_STORE, "readwrite").objectStore(IDB_STORE).put(val, key);
+      rq.onsuccess = ()=> res(true);
+      rq.onerror = ()=> res(false);
+    } catch(e){ res(false); }
+  });
+}
 function stateJson(){
   return JSON.stringify({ v:2, active:activeIdx, docs:docs, closed:closedDocs });
 }
@@ -776,8 +881,15 @@ function saveDoc(){
   if (VIEWER){ if (doc) store.set(DOC_KEY, JSON.stringify(doc)); return; }
   // even with no documents left the tombstones must persist, or the next sync pulls
   // the closed ones straight back
-  const ok = store.set(DOC_KEY, stateJson());
-  if (!ok) setError("Browser storage is full - close a document, or save one as HTML and clear it.");
+  const json = stateJson();
+  dirty = true;
+  if (idb){
+    idbSet("state", json);                    // async on purpose: nothing waits on it
+    store.del(DOC_KEY);                       // the old copy is no longer the truth
+  } else {
+    const ok = store.set(DOC_KEY, json);
+    if (!ok) setError("Browser storage is full - close a document, or save one as HTML and clear it.");
+  }
   schedulePush();
 }
 function syncInputs(){
@@ -824,8 +936,12 @@ function renderTabs(){
       + '<span class="x" onclick="dropDoc(' + i + ', event)" title="Close">×</span></button>';
   }).join("");
 }
-function loadDoc(){
-  const s = store.get(DOC_KEY);
+async function loadDoc(){
+  let s = idb ? await idbGet("state") : null;
+  if (!s){
+    s = store.get(DOC_KEY);                              // first run after the change
+    if (s && idb){ await idbSet("state", s); store.del(DOC_KEY); }
+  }
   if (!s) return false;
   try {
     const parsed = JSON.parse(s);
@@ -1098,11 +1214,10 @@ function mergeDocLists(local, remote){
   return out;
 }
 
-function b64encode(str){
+function b64FromBytes(bytes){
   // Must be chunked. String.fromCharCode.apply passes every byte as a separate
   // argument, so anything past roughly 100 KB - four outlines - overflows the call
   // stack. 32 KB per call stays far inside the argument limit on every engine.
-  const bytes = new TextEncoder().encode(str);
   const CHUNK = 0x8000;
   let bin = "";
   for (let i = 0; i < bytes.length; i += CHUNK){
@@ -1110,11 +1225,36 @@ function b64encode(str){
   }
   return btoa(bin);
 }
-function b64decode(b64){
+function bytesFromB64(b64){
   const bin = atob(String(b64).replace(/\s/g,""));
   const bytes = new Uint8Array(bin.length);
   for (let i=0;i<bin.length;i++) bytes[i] = bin.charCodeAt(i);
+  return bytes;
+}
+// The state is repetitive JSON, so gzip takes it down by roughly 5x. That means less
+// to upload on a phone connection and far smaller commits in the repo.
+const CAN_GZIP = (typeof CompressionStream === "function") && (typeof DecompressionStream === "function");
+async function gzipBytes(str){
+  const stream = new Blob([str]).stream().pipeThrough(new CompressionStream("gzip"));
+  return new Uint8Array(await new Response(stream).arrayBuffer());
+}
+async function gunzipText(bytes){
+  const stream = new Blob([bytes]).stream().pipeThrough(new DecompressionStream("gzip"));
+  return await new Response(stream).text();
+}
+// files written by an older version, or by a browser without CompressionStream, are
+// plain JSON - the gzip magic number tells the two apart
+async function textFromBytes(bytes){
+  if (bytes.length > 2 && bytes[0] === 0x1f && bytes[1] === 0x8b){
+    if (!CAN_GZIP) throw new Error("this browser cannot read the compressed sync file");
+    return await gunzipText(bytes);
+  }
   return new TextDecoder().decode(bytes);
+}
+function hashOf(str){
+  let h = 5381;
+  for (let i=0;i<str.length;i++) h = ((h*33) ^ str.charCodeAt(i)) >>> 0;
+  return str.length + ":" + h.toString(36);
 }
 const SYNC_PATH = "atlas-state.json";
 function syncCfg(){
@@ -1129,26 +1269,35 @@ function setSync(msg, kind){
   el.className = "syncstatus" + (kind ? " " + kind : "");
   el.style.display = "block";
 }
-async function ghFetch(method, body, raw){
+async function ghFetch(method, body, opts){
+  opts = opts || {};
   const c = syncCfg();
   const url = "https://api.github.com/repos/" + c.repo + "/contents/" + SYNC_PATH;
-  const res = await fetch(url + (method === "GET" ? "?t=" + now() : ""), {
+  const headers = { "Authorization": "Bearer " + c.token,
+                    // over 1 MB the JSON envelope returns an empty content field, and
+                    // only the raw media type will hand back the body
+                    "Accept": opts.raw ? "application/vnd.github.raw" : "application/vnd.github+json",
+                    "X-GitHub-Api-Version": "2022-11-28" };
+  // a conditional request costs no rate limit and returns nothing when the other
+  // device has not touched the file since we last looked
+  if (opts.etag) headers["If-None-Match"] = opts.etag;
+  const res = await fetch(url, {
     method: method,
     cache: "no-store",
-    headers: { "Authorization": "Bearer " + c.token,
-               // over 1 MB the JSON envelope returns an empty content field, and only
-               // the raw media type will hand back the body
-               "Accept": raw ? "application/vnd.github.raw+json" : "application/vnd.github+json",
-               "X-GitHub-Api-Version": "2022-11-28" },
+    headers: headers,
     body: body ? JSON.stringify(body) : undefined
   });
+  if (res.status === 304) return { notModified:true };
   if (res.status === 404 && method === "GET") return null;      // first ever sync
   if (!res.ok){
     let detail = "HTTP " + res.status;
     try { const j = await res.json(); if (j.message) detail = j.message; } catch(e){}
     const err = new Error(detail); err.status = res.status; throw err;
   }
-  return raw ? await res.text() : await res.json();
+  if (opts.raw) return new Uint8Array(await res.arrayBuffer());
+  const j = await res.json();
+  j._etag = res.headers.get("ETag");
+  return j;
 }
 function syncError(e){
   if (e.status === 401) return "Sync: token rejected - check it has not expired.";
@@ -1157,7 +1306,7 @@ function syncError(e){
   if (e.status === 409 || e.status === 422) return "Sync: the file changed elsewhere - press Sync now again.";
   return "Sync failed: " + e.message;
 }
-let syncing = false, pushTimer = null;
+let syncing = false, pushTimer = null, lastPushed = null, lastEtag = null, lastSha = null;
 async function syncNow(opts){
   const quiet = opts && opts.quiet;
   if (!syncOn()){ if (!quiet) setSync("Add a repo and a token above first.", "bad"); return false; }
@@ -1165,17 +1314,22 @@ async function syncNow(opts){
   syncing = true;
   setSync(quiet ? "Syncing…" : "Checking the other device…", "busy");
   try {
-    const remote = await ghFetch("GET");
-    let sha = remote ? remote.sha : null;
-    if (remote){
+    const remote = await ghFetch("GET", null, { etag: lastEtag });
+    let sha = lastSha;
+    if (remote && remote.notModified){
+      // the other device has not written since we last looked, so there is nothing
+      // to merge; whether to send is decided below
+    } else if (remote){
       // Read the remote copy before writing anything. If it exists but cannot be
       // read, stop - pushing here would overwrite the other device's work with a
       // local-only copy, which is the one failure mode that actually loses data.
-      let text = null;
-      if (remote.content && remote.encoding !== "none") text = b64decode(remote.content);
-      else text = await ghFetch("GET", null, true);          // >1 MB: raw media type
+      sha = remote.sha;
+      lastEtag = remote._etag || null;
+      let bytes = null;
+      if (remote.content && remote.encoding !== "none") bytes = bytesFromB64(remote.content);
+      else bytes = await ghFetch("GET", null, { raw:true });   // >1 MB: raw media type
       let theirs = null;
-      try { theirs = JSON.parse(text); } catch(e){}
+      try { theirs = JSON.parse(await textFromBytes(bytes)); } catch(e){}
       if (!theirs || !Array.isArray(theirs.docs))
         throw new Error("the synced file could not be read - nothing was overwritten");
       const activeId = doc && doc.id;
@@ -1185,23 +1339,38 @@ async function syncNow(opts){
       activeIdx = at >= 0 ? at : 0;
       doc = docs[activeIdx] || null;
       if (!docs.length){ $("result").style.display = "none"; $("hero").style.display = "block"; }
+    } else {
+      sha = null;                                             // the file does not exist yet
+    }
+    // Nothing to send: the merge produced exactly what we last pushed. Skipping here
+    // is what stops a commit being written every time the page is opened, whichever
+    // path the read took.
+    if (sha && !dirty && lastPushed === hashOf(stateJson())){
+      setSync("Already in sync · " + new Date().toLocaleTimeString(), null);
+      return true;
     }
     const payload = JSON.stringify({ v:2, active:activeIdx, docs:docs, closed:closedDocs, at:now() });
+    const bytes = CAN_GZIP ? await gzipBytes(payload) : new TextEncoder().encode(payload);
     const put = await ghFetch("PUT", {
       message: "atlas: " + docs.length + " document(s) " + new Date().toISOString(),
-      content: b64encode(payload),
+      content: b64FromBytes(bytes),
       sha: sha || undefined
     });
+    lastPushed = hashOf(stateJson());
+    lastEtag = null;                       // our own write invalidates it
+    if (put && put.content) lastSha = put.content.sha;
+    dirty = false;
     store.set("sync_at", String(now()));
-    if (put && put.content) store.set("sync_sha", put.content.sha);
-    store.set(DOC_KEY, stateJson());
+    if (idb) idbSet("state", stateJson()); else store.set(DOC_KEY, stateJson());
     if (doc) render(); else renderTabs();
     const kb = Math.round(payload.length / 1024);
+    const sent = Math.round(bytes.length / 1024);
     // Some browsers count localStorage in UTF-16 units, so the usable budget can be
     // about half the quoted 5 MB. Warn from 2 MB rather than pretending 5 is safe.
     setSync("Synced " + new Date().toLocaleTimeString() + " · " + docs.length
       + (docs.length === 1 ? " document" : " documents") + " · " + kb + " KB"
-      + (kb > 2000 ? " · nearing the browser storage budget: save finished topics as HTML and close them" : ""), null);
+      + (CAN_GZIP ? " (" + sent + " KB sent)" : "")
+      + (!idb && kb > 2000 ? " · nearing the browser storage budget" : ""), null);
     return true;
   } catch(e){
     setSync(syncError(e), "bad");
@@ -1391,7 +1560,7 @@ window.getQuick = async function(i, j){
   try {
     const res = await ask(quickPrompt(p, c.name), { json:true, maxTokens:1400 });
     const a = res.answers || [];
-    p.quick = p.questions.map((q,k)=> a[k] || "—");
+    p.quick = p.questions.map((q,k)=> deTeX(a[k] || "—"));
     setError(null);
   } catch(e){
     p.error = friendlyErr(e);
@@ -1406,7 +1575,7 @@ window.getDeep = async function(i, j){
   if (p.article) dropHighlights(i, j, ["art"]);
   p.articleLoading = true; p.error = null; renderCategory(i);
   try {
-    p.article = await ask(deepPrompt(p, c.name), { maxTokens:2400 });
+    p.article = deTeX(await ask(deepPrompt(p, c.name), { maxTokens:2400 }));
     setError(null);
   } catch(e){
     p.error = friendlyErr(e);
@@ -1799,8 +1968,17 @@ $("showTextBtn").addEventListener("click", ()=>{
   $("showTextBtn").textContent = show ? "Hide text" : "Show text to select manually";
 });
 
+// a phone backgrounds the tab rather than closing it, so flush before it goes away
+document.addEventListener("visibilitychange", ()=>{
+  if (document.visibilityState === "hidden" && dirty && syncOn()){
+    clearTimeout(pushTimer);
+    syncNow({ quiet:true });
+  }
+});
+
 // ---------------- start up ----------------
-(function start(){
+(async function start(){
+  idb = await idbOpen();
   const emb = document.getElementById("atlasdoc");
   if (emb){
     let d = null;
@@ -1820,7 +1998,7 @@ $("showTextBtn").addEventListener("click", ()=>{
       return;
     }
   }
-  loadDoc();
+  await loadDoc();
   // pull whatever the other device left behind, then push anything only here
   if (syncOn()) syncNow({ quiet:true });
 })();
