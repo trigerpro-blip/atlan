@@ -389,10 +389,11 @@
       touches what is already loaded &mdash; it comes back as its own tab.</p>
       <div id="backupList"></div>
       <div class="row" style="margin-top:4px;">
-        <button class="btn-outline" id="historyBtn">Browse sync history</button>
+        <button class="btn-outline" id="historyBtn">Find a synced document</button>
         <button class="btn-outline" id="importSyncBtn">Restore from a sync file</button>
         <button class="btn-outline" id="forgetBackupsBtn">Delete all copies</button>
       </div>
+      <div class="syncstatus" id="recoverStatus" style="display:none;"></div>
       <div id="historyList"></div>
       <input type="file" id="syncFileInput" accept=".json,.gz,.gzip,application/json,application/gzip" style="display:none;">
       <p class="hint">Lost something that had already synced? <strong>Browse sync history</strong> reads every
@@ -1228,7 +1229,7 @@ async function importSyncFile(file){
     const parsed = JSON.parse(await textFromBytes(bytes));
     list = Array.isArray(parsed) ? parsed : (parsed && parsed.docs);
   } catch(e){
-    setError("That file could not be read as a sync file: " + e.message);
+    setRecover("That file could not be read as a sync file: " + e.message, "bad");
     return;
   }
   await restoreFromState(list, "that file");
@@ -1237,7 +1238,7 @@ async function importSyncFile(file){
 // overwritten by an older copy of itself - it arrives beside it, so you can compare
 // the two and close the one you do not want.
 async function restoreFromState(list, label){
-  if (!Array.isArray(list) || !list.length){ setError("No documents in " + label + "."); return; }
+  if (!Array.isArray(list) || !list.length){ setRecover("No documents in " + label + ".", "bad"); return; }
   let added = 0, copied = 0, skipped = 0;
   for (const raw of list){
     if (!raw || !raw.categories || !raw.categories.length) continue;
@@ -1255,12 +1256,12 @@ async function restoreFromState(list, label){
     docs.push(d);
     added++;
   }
-  if (!added && !skipped){ setError("Nothing usable in " + label + "."); return; }
+  if (!added && !skipped){ setRecover("Nothing usable in " + label + ".", "bad"); return; }
   if (added) setActive(docs.length - 1); else renderTabs();
   saveDoc();
   setError(null);
   renderBackups();
-  setSync("From " + label + ": " + added + " restored"
+  setRecover("From " + label + ": " + added + " restored"
     + (skipped ? ", " + skipped + " already open" : "")
     + " · " + copied + " copied to the recovery list", null);
 }
@@ -1291,53 +1292,110 @@ async function stateAtCommit(sha){
   const bytes = await ghApi("/contents/" + SYNC_PATH + "?ref=" + encodeURIComponent(sha), { raw:true });
   return JSON.parse(await textFromBytes(bytes));
 }
-let history = [];
-function renderHistory(){
+// Walking the history one commit at a time and unpacking each state file gives a
+// list of DOCUMENTS rather than a list of commits: every outline that has ever been
+// synced, each at the newest version it appears in. Commits are meaningless to read
+// back - "which of these forty saves held my craniopharyngioma outline?" - whereas a
+// list of titles is the actual question being asked.
+let histCommits = [], histScanned = 0, histDocs = [], histSeen = {}, histBusy = false;
+// Recovery has its own status line. The sync one lives inside Settings, which is
+// collapsed as soon as an API key is saved - so every message about reading the
+// history was being written somewhere invisible, and the whole thing looked dead.
+function setRecover(msg, kind){
+  const el = $("recoverStatus");
+  if (!msg){ el.style.display = "none"; return; }
+  el.textContent = msg;
+  el.className = "syncstatus" + (kind ? " " + kind : "");
+  el.style.display = "block";
+}
+
+function renderHistoryList(){
   const box = $("historyList");
-  if (!history.length){ box.innerHTML = ""; return; }
-  box.innerHTML = '<div class="bkmeta" style="margin:10px 0 2px;">Every saved version, newest first. '
-    + 'Opening one adds any document it holds that is not already open.</div>'
-    + history.map((h,i)=>{
-        // the app writes its own commit messages, so the count comes for free
-        const m = /atlas: (\d+) document/.exec(h.msg || "");
-        const what = m ? m[1] + (m[1] === "1" ? " document" : " documents") : "version";
-        return '<div class="bkrow"><div class="bkmain">'
-             + '<div class="bktitle">' + esc(what) + '</div>'
-             + '<div class="bkmeta">' + esc(new Date(h.at).toLocaleString()) + ' · '
-             + esc(String(h.sha).slice(0,7)) + '</div></div>'
-             + '<button class="writebtn" data-hist="' + i + '">Open</button></div>';
-      }).join("");
+  if (!histCommits.length){ box.innerHTML = ""; return; }
+  let html = '<div class="bkmeta" style="margin:10px 0 2px;">'
+    + (histDocs.length ? histDocs.length + " document(s) found in the newest " + histScanned
+        + " of " + histCommits.length + " saved versions. Each opens at its most recent version, on its own tab."
+      : "Nothing found yet in the newest " + histScanned + " versions.")
+    + '</div>';
+  html += histDocs.map((h,i)=>
+      '<div class="bkrow"><div class="bkmain">'
+    + '<div class="bktitle">' + esc(h.title) + '</div>'
+    + '<div class="bkmeta">' + esc(h.note) + '<br>last synced ' + esc(whenText(h.at))
+    + (h.open ? ' · already open' : '') + '</div></div>'
+    + '<button class="writebtn" data-doc="' + i + '">' + (h.open ? "Open a copy" : "Open") + '</button></div>').join("");
+  if (histScanned < histCommits.length){
+    html += '<div class="bkrow"><div class="bkmain"><div class="bkmeta">'
+         +  (histCommits.length - histScanned) + ' older versions not read yet.</div></div>'
+         +  '<button class="writebtn" data-more="1">Look further back</button></div>';
+  }
+  box.innerHTML = html;
+}
+// Each state file is read whole, then thrown away except for documents not seen in a
+// newer one - so memory holds one copy per outline, not one per commit.
+async function histScan(n){
+  if (histBusy) return;
+  histBusy = true;
+  const stop = Math.min(histCommits.length, histScanned + n);
+  let failed = 0;
+  try {
+    while (histScanned < stop){
+      const c = histCommits[histScanned];
+      setRecover("Reading saved version " + (histScanned + 1) + " of " + histCommits.length + "…", "busy");
+      let state = null;
+      try { state = await stateAtCommit(c.sha); }
+      catch(e){ failed++; histScanned++; continue; }     // a bad version must not stop the walk
+      const at = new Date(c.at).getTime() || now();
+      ((state && state.docs) || []).forEach(raw=>{
+        if (!raw || !raw.categories || !raw.categories.length) return;
+        const id = raw.id || ("t:" + (raw.title || raw.topic || ""));
+        if (histSeen[id]) return;                        // a newer version already won
+        histSeen[id] = true;
+        histDocs.push({ title: raw.title || raw.topic || "Untitled", note: docStats(raw),
+                        at: at, open: docs.some(x=> x.id === raw.id),
+                        json: JSON.stringify(raw) });
+      });
+      histScanned++;
+    }
+    renderHistoryList();
+    setRecover(histDocs.length + " document(s) found across " + histScanned + " version(s)"
+      + (failed ? " · " + failed + " could not be read" : ""), null);
+  } finally { histBusy = false; }
 }
 $("historyBtn").addEventListener("click", async ()=>{
-  if (!syncOn()){ setError("Add your sync repo and token in Settings first - the history is read with them."); return; }
-  setError(null);
+  if (!syncOn()){ setRecover("Add your sync repo and token in Settings first - the history is read with them.", "bad"); return; }
+  setError(null); setRecover(null);
   $("historyBtn").disabled = true;
-  setSync("Reading the sync history…", "busy");
+  setRecover("Looking for saved versions…", "busy");
   try {
-    const list = await ghApi("/commits?path=" + encodeURIComponent(SYNC_PATH) + "&per_page=30");
-    history = (list||[]).map(c=> ({ sha: c.sha,
-      at: ((c.commit||{}).committer||{}).date || ((c.commit||{}).author||{}).date,
-      msg: (c.commit||{}).message || "" }));
-    renderHistory();
-    setSync(history.length ? history.length + " saved versions found" : "No history for that file yet.", null);
+    const list = await ghApi("/commits?path=" + encodeURIComponent(SYNC_PATH) + "&per_page=60");
+    histCommits = (list||[]).map(c=> ({ sha: c.sha,
+      at: ((c.commit||{}).committer||{}).date || ((c.commit||{}).author||{}).date }));
+    histScanned = 0; histDocs = []; histSeen = {};
+    if (!histCommits.length){
+      $("historyList").innerHTML = "";
+      setRecover("No saved versions of " + SYNC_PATH + " in that repo yet.", "bad");
+    } else {
+      await histScan(15);                                // enough for 15-20 outlines
+    }
   } catch(e){
-    setSync(syncError(e), "bad");
+    $("historyList").innerHTML = "";
+    setRecover(syncError(e), "bad");
   }
   $("historyBtn").disabled = false;
 });
 $("historyList").addEventListener("click", async (e)=>{
-  const btn = e.target.closest("button[data-hist]");
+  const more = e.target.closest("button[data-more]");
+  if (more){ more.disabled = true; more.textContent = "Reading…"; await histScan(10); return; }
+  const btn = e.target.closest("button[data-doc]");
   if (!btn) return;
-  const h = history[parseInt(btn.dataset.hist, 10)];
+  const h = histDocs[parseInt(btn.dataset.doc, 10)];
   if (!h) return;
   btn.disabled = true; btn.textContent = "Opening…";
   try {
-    const parsed = await stateAtCommit(h.sha);
-    await restoreFromState(parsed && parsed.docs, "version from " + new Date(h.at).toLocaleString());
-  } catch(err){
-    setSync(syncError(err), "bad");
-  }
+    await restoreFromState([JSON.parse(h.json)], "the sync history");
+  } catch(err){ setRecover("That document could not be read: " + err.message, "bad"); }
   btn.disabled = false; btn.textContent = "Open";
+  renderHistoryList();
 });
 
 $("importSyncBtn").addEventListener("click", ()=> $("syncFileInput").click());
