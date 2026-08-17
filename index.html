@@ -121,6 +121,11 @@
   #hlbar .sw-11 { background:#40fff2; } #hlbar .sw-12 { background:#ff5cc8; }
   #hlbar .sw-13 { background:#ffa02e; }
   #hlbar .rule { flex:0 0 100%; height:1px; background:rgba(255,255,255,.18); margin:1px 0; }
+  /* text outside a highlightable block - the overview, a heading - can still be
+     looked up, so the bar comes back stripped to just that one button */
+  #hlbar.imgonly { max-width:none; }
+  #hlbar.imgonly .sw, #hlbar.imgonly .rule,
+  #hlbar.imgonly .txtbtn:not([data-img]) { display:none; }
   #hlbar .txtbtn { background:none; border:1px solid rgba(255,255,255,.45); color:#fff;
                    border-radius:999px; font-size:12px; padding:3px 11px; }
   #hlbar .ulbtn { text-decoration:underline; text-decoration-color:#ff6b6b;
@@ -155,6 +160,17 @@
   .errline { font-size:14px; color:#b91c1c; margin-bottom:16px; }
   .pageerr { font-size:13px; color:#b91c1c; margin-top:6px; }
   .footer-note { font-size:12px; color:#bbb; text-align:center; margin-top:30px; }
+
+  /* ---------- recovery ---------- */
+  #recoverPanel { border-top:1px solid #e5e5e5; margin-top:12px; padding-top:12px; }
+  .bkrow { display:flex; align-items:center; gap:10px; padding:8px 0;
+           border-bottom:1px solid #f0f0f0; }
+  .bkrow:last-child { border-bottom:none; }
+  .bkmain { flex:1; min-width:0; }
+  .bktitle { font-size:14px; font-weight:600; color:#111; overflow-wrap:break-word; }
+  .bkmeta { font-size:12px; color:#9a9a9a; line-height:1.45; margin-top:1px; }
+  .bkwhy { color:#555; }
+  #backupList { max-height:320px; overflow:auto; margin-bottom:10px; }
 
   /* ---------- highlight overview ----------
      Every highlight in the document, gathered above the outline so a whole
@@ -365,6 +381,25 @@
     </div>
     <input type="file" id="fileInput" accept=".html,.htm,.md,.txt,text/html,text/plain" style="display:none;">
     <p class="hint">Everything stays in this browser. Answers are saved locally, so a refresh will not lose them. <strong>Load saved page</strong> reopens an HTML file you saved earlier, with its answers and highlights &mdash; you can also drop the file anywhere on this panel.</p>
+
+    <button class="linklike" id="recoverBtn" style="padding-bottom:0;">Recover a document</button>
+    <div id="recoverPanel" style="display:none;">
+      <p class="hint" style="margin-top:6px;">A copy is kept every time a document is opened, closed, cleared,
+      merged or overwritten, plus a rolling copy of whatever you are working on. Opening one here never
+      touches what is already loaded &mdash; it comes back as its own tab.</p>
+      <div id="backupList"></div>
+      <div class="row" style="margin-top:4px;">
+        <button class="btn-outline" id="historyBtn">Browse sync history</button>
+        <button class="btn-outline" id="importSyncBtn">Restore from a sync file</button>
+        <button class="btn-outline" id="forgetBackupsBtn">Delete all copies</button>
+      </div>
+      <div id="historyList"></div>
+      <input type="file" id="syncFileInput" accept=".json,.gz,.gzip,application/json,application/gzip" style="display:none;">
+      <p class="hint">Lost something that had already synced? <strong>Browse sync history</strong> reads every
+      past version of <em>atlas-state.json</em> straight out of your private repo using the token in Settings,
+      so there is nothing to download by hand. Restoring never touches what is open &mdash; recovered
+      documents arrive as new tabs.</p>
+    </div>
   </div>
 
   <div class="errline" id="errLine" style="display:none;"></div>
@@ -443,6 +478,8 @@
     <button class="sw sw-11" data-fill="11" title="Neon cyan"></button>
     <button class="sw sw-12" data-fill="12" title="Neon pink"></button>
     <button class="sw sw-13" data-fill="13" title="Neon orange"></button>
+    <span class="rule"></span>
+    <button class="txtbtn" data-img="1" title="Google Images for the selected text">&#128269; Images</button>
     <span class="rule"></span>
     <button class="txtbtn ulbtn" data-ul="1" title="Red underline - stacks on any colour">Underline</button>
     <button class="txtbtn" data-fill="0" title="Remove colour, keep the underline">No fill</button>
@@ -889,7 +926,12 @@ function parseTaxonomy(raw){
 // A saved page keeps its own storage slot, so opening one cannot overwrite the work
 // in progress in the app itself (both can end up on the same file:// origin).
 let VIEWER = false, DOC_KEY = "answers_doc";
-let fileHandle = null, handles = [];      // handles[i] belongs to docs[i]
+// A file handle belongs to a DOCUMENT, not to a tab position. Keying it by
+// document id means no reordering, merge or removal can ever leave a handle
+// pointing at a file that belongs to something else - which is exactly how a
+// freshly loaded outline once got overwritten with another tab's contents.
+let fileHandles = {};                     // doc id -> FileSystemFileHandle
+function currentHandle(){ return (doc && doc.id && fileHandles[doc.id]) || null; }
 function normaliseHl(d){
   if (!d) return d;
   if (!d.id) d.id = uid();                    // documents saved before sync existed
@@ -962,6 +1004,9 @@ function saveDoc(){
     const ok = store.set(DOC_KEY, json);
     if (!ok) setError("Browser storage is full - close a document, or save one as HTML and clear it.");
   }
+  // a rolling copy of whatever is being worked on, so no failure anywhere - a bad
+  // merge, a crash, a mis-aimed save - can cost more than a few minutes
+  if (doc && now() - (lastBackupAt[doc.id] || 0) > 300000) backupDoc(doc, "autosave");
   schedulePush();
 }
 function syncInputs(){
@@ -973,18 +1018,40 @@ function setActive(i){
   activeIdx = i; doc = docs[i];
   // the file each document was opened from travels with it, so switching tabs
   // cannot make Save write into the other document's file
-  fileHandle = handles[i] || null;
   if (typeof showFileTarget === "function") showFileTarget();
   HL_BASE.clear(); syncInputs(); render(); saveDoc();
 }
 function addDoc(d){
-  docs.push(d); handles.push(null);
+  // Reopening something that was closed is an explicit "I want this back", so any
+  // tombstone for it dies here. Without this, a close recorded earlier - on this
+  // device or another - silently deleted the document again on the next sync.
+  if (d && d.id && closedDocs[d.id]) delete closedDocs[d.id];
+  // the same document opened twice would sync as two copies of one id, so the
+  // incoming copy is merged into the tab already holding it
+  const at = d && d.id ? docs.findIndex(x=> x.id === d.id) : -1;
+  if (at >= 0){
+    backupDoc(docs[at], "before merge");
+    docs[at] = normaliseHl(mergeOneDoc(docs[at], d));
+    setActive(at);
+    setError("That document is already open - the two copies were merged, newest wins per page.");
+    return;
+  }
+  docs.push(d);
+  backupDoc(d, "opened");            // the copy that makes losing it impossible
   setActive(docs.length - 1);
 }
 function closeDoc(i){
   const gone = docs[i];
-  if (gone && gone.id) closedDocs[gone.id] = now();    // remember it was closed on purpose
-  docs.splice(i, 1); handles.splice(i, 1);
+  if (!gone) return;
+  let work = 0;
+  (gone.categories||[]).forEach(c=> (c.pages||[]).forEach(p=>{ if (p.quick || p.article) work++; }));
+  Object.keys(gone.hl||{}).forEach(k=> work += gone.hl[k].length);
+  if (work && !window.confirm("Close “" + (gone.title || gone.topic || "this document") + "”?"
+      + (syncOn() ? "\n\nSync is on, so it closes on your other devices too." : "")
+      + "\n\nA copy is kept under “Recover a document”, so this can be undone.")) return;
+  backupDoc(gone, "closed");                           // never lose it on the way out
+  if (gone.id){ closedDocs[gone.id] = now(); delete fileHandles[gone.id]; }
+  docs.splice(i, 1);
   if (!docs.length){
     doc = null; activeIdx = 0;
     $("result").style.display = "none";
@@ -1031,12 +1098,262 @@ async function loadDoc(){
   } catch(e){ docs = []; doc = null; return false; }
 }
 
+// ---------------- backups ----------------
+// Everything that can make a document disappear takes a copy first: opening,
+// closing, clearing, merging, a sync removal, and overwriting a file that holds
+// something else. Plus a rolling autosave of the document in hand. The copies live
+// in IndexedDB beside the working state, so they survive a refresh and a crash.
+const BACKUP_KEY = "backups", BACKUP_MAX = 40, BACKUP_BUDGET = 12000000;
+const BACKUP_WHY = { "opened":"opened", "closed":"closed", "cleared":"cleared",
+  "autosave":"autosave", "before merge":"before a merge", "removed by sync":"removed by sync",
+  "in the file being replaced":"was in a file you replaced", "imported":"from a sync file" };
+let backups = [], backupsLoaded = false, lastBackupAt = {};
+
+async function backupsLoad(){
+  if (backupsLoaded) return backups;
+  let raw = idb ? await idbGet(BACKUP_KEY) : null;
+  if (!raw) raw = store.get("atlas_backups");
+  try { backups = raw ? JSON.parse(raw) : []; } catch(e){ backups = []; }
+  if (!Array.isArray(backups)) backups = [];
+  backupsLoaded = true;
+  return backups;
+}
+async function backupsPersist(){
+  backups.sort((a,b)=> (b.at||0) - (a.at||0));
+  let total = 0;
+  backups = backups.filter((b,i)=>{
+    total += (b.json||"").length;
+    return i < BACKUP_MAX && total < BACKUP_BUDGET;
+  });
+  if (idb) await idbSet(BACKUP_KEY, JSON.stringify(backups));
+  else { try { store.set("atlas_backups", JSON.stringify(backups.slice(0,3))); } catch(e){} }
+  if ($("recoverPanel") && $("recoverPanel").style.display !== "none") renderBackups();
+}
+function docStats(d){
+  let pages = 0, qs = 0, answered = 0, deep = 0, hls = 0;
+  (d.categories||[]).forEach(c=> (c.pages||[]).forEach(p=>{
+    pages++; qs += (p.questions||[]).length;
+    if (p.quick) answered++;
+    if (p.article) deep++;
+  }));
+  Object.keys(d.hl||{}).forEach(k=> hls += (d.hl[k]||[]).length);
+  return pages + " pages · " + qs + " questions · " + answered + " answered"
+       + (deep ? " · " + deep + " deeper" : "") + (hls ? " · " + hls + " highlights" : "");
+}
+async function backupDoc(d, why){
+  if (VIEWER || !d || !d.categories || !d.categories.length) return;
+  try {
+    await backupsLoad();
+    const json = JSON.stringify(d);
+    // Storing the same bytes twice helps nobody, but the reason still matters: an
+    // untouched document that is closed should say "closed", not "opened an hour
+    // ago". A real event relabels the existing copy; an autosave leaves it alone.
+    const newest = backups.find(b=> b.docId === d.id);
+    if (newest && newest.json === json){
+      lastBackupAt[d.id] = now();
+      if (why && why !== "autosave"){ newest.why = why; newest.at = now(); await backupsPersist(); }
+      return;
+    }
+    backups.unshift({ at: now(), why: why || "copy", docId: d.id || "",
+                      title: d.title || d.topic || "Untitled",
+                      note: docStats(d), json: json });
+    lastBackupAt[d.id] = now();
+    await backupsPersist();
+  } catch(e){ /* a backup must never break the thing it is protecting */ }
+}
+function whenText(t){
+  const mins = Math.round((now() - t) / 60000);
+  if (mins < 1) return "just now";
+  if (mins < 60) return mins + " min ago";
+  const hrs = Math.round(mins/60);
+  if (hrs < 24) return hrs + (hrs === 1 ? " hour ago" : " hours ago");
+  return new Date(t).toLocaleString();
+}
+function renderBackups(){
+  const box = $("backupList");
+  if (!backups.length){
+    box.innerHTML = '<p class="hint" style="margin:0;">No copies yet. One is kept the moment a document is opened.</p>';
+    return;
+  }
+  box.innerHTML = backups.map((b,i)=>
+    '<div class="bkrow"><div class="bkmain">'
+    + '<div class="bktitle">' + esc(b.title || "Untitled") + '</div>'
+    + '<div class="bkmeta"><span class="bkwhy">' + esc(BACKUP_WHY[b.why] || b.why) + '</span> · '
+    + esc(whenText(b.at)) + '<br>' + esc(b.note || "") + '</div></div>'
+    + '<button class="writebtn" data-bk="' + i + '">Open</button></div>').join("");
+}
+// A restored copy always arrives as its own document. If the id is still open, the
+// copy is given a new one rather than being merged in - a restore is there precisely
+// because the live version is wrong, so it must not be overwritten by it.
+function openBackup(i){
+  const b = backups[i];
+  if (!b) return;
+  let d;
+  try { d = JSON.parse(b.json); } catch(e){ setError("That copy could not be read."); return; }
+  d = normaliseHl(d);
+  if (docs.some(x=> x.id === d.id)){
+    d.id = uid();
+    d.title = (d.title || d.topic || "Untitled") + " (restored)";
+  }
+  delete closedDocs[d.id];
+  stampDoc(d);
+  addDoc(d);
+  saveDoc();
+  setError(null);
+  setProgress(null);
+}
+$("recoverBtn").addEventListener("click", async ()=>{
+  const panel = $("recoverPanel");
+  const show = panel.style.display === "none";
+  panel.style.display = show ? "block" : "none";
+  $("recoverBtn").textContent = show ? "Hide recovery" : "Recover a document";
+  if (show){ await backupsLoad(); renderBackups(); }
+});
+$("backupList").addEventListener("click", (e)=>{
+  const b = e.target.closest("button[data-bk]");
+  if (b) openBackup(parseInt(b.dataset.bk, 10));
+});
+$("forgetBackupsBtn").addEventListener("click", async ()=>{
+  if (!window.confirm("Delete every stored copy? Documents currently open are not affected.")) return;
+  backups = []; await backupsPersist();
+  renderBackups();
+});
+// Recovering from the sync repo's own history: atlas-state.json holds every
+// document, gzipped or plain, so any older commit of it is a full restore point.
+async function importSyncFile(file){
+  if (!file) return;
+  let list = null;
+  try {
+    const bytes = new Uint8Array(await file.arrayBuffer());
+    const parsed = JSON.parse(await textFromBytes(bytes));
+    list = Array.isArray(parsed) ? parsed : (parsed && parsed.docs);
+  } catch(e){
+    setError("That file could not be read as a sync file: " + e.message);
+    return;
+  }
+  await restoreFromState(list, "that file");
+}
+// Shared by the file picker and the repo history. A document already open is never
+// overwritten by an older copy of itself - it arrives beside it, so you can compare
+// the two and close the one you do not want.
+async function restoreFromState(list, label){
+  if (!Array.isArray(list) || !list.length){ setError("No documents in " + label + "."); return; }
+  let added = 0, copied = 0, skipped = 0;
+  for (const raw of list){
+    if (!raw || !raw.categories || !raw.categories.length) continue;
+    const d = normaliseHl(JSON.parse(JSON.stringify(raw)));
+    await backupDoc(d, "imported");
+    copied++;
+    const openCopy = docs.find(x=> x.id === d.id);
+    if (openCopy){
+      // byte-identical to what is already on screen: nothing to restore
+      if (JSON.stringify(openCopy) === JSON.stringify(d)){ skipped++; continue; }
+      d.id = uid();
+      d.title = (d.title || d.topic || "Untitled") + " (restored)";
+    }
+    delete closedDocs[d.id];
+    docs.push(d);
+    added++;
+  }
+  if (!added && !skipped){ setError("Nothing usable in " + label + "."); return; }
+  if (added) setActive(docs.length - 1); else renderTabs();
+  saveDoc();
+  setError(null);
+  renderBackups();
+  setSync("From " + label + ": " + added + " restored"
+    + (skipped ? ", " + skipped + " already open" : "")
+    + " · " + copied + " copied to the recovery list", null);
+}
+// ---- restoring from the repo's own history ----
+// A private repo will not hand a file to an unauthenticated browser, which is why
+// clicking Raw or Download does nothing useful. The token already in Settings can
+// read it through the API, including every earlier commit of it - so the whole
+// point-in-time history of your work is reachable from in here.
+async function ghApi(path, opts){
+  opts = opts || {};
+  const c = syncCfg();
+  const res = await fetch("https://api.github.com/repos/" + c.repo + path, {
+    cache: "no-store",
+    headers: { "Authorization": "Bearer " + c.token,
+               // raw hands back the file bytes, and works past the 1 MB limit where
+               // the JSON envelope quietly returns an empty content field
+               "Accept": opts.raw ? "application/vnd.github.raw" : "application/vnd.github+json",
+               "X-GitHub-Api-Version": "2022-11-28" }
+  });
+  if (!res.ok){
+    let detail = "HTTP " + res.status;
+    try { const j = await res.json(); if (j.message) detail = j.message; } catch(e){}
+    const err = new Error(detail); err.status = res.status; throw err;
+  }
+  return opts.raw ? new Uint8Array(await res.arrayBuffer()) : await res.json();
+}
+async function stateAtCommit(sha){
+  const bytes = await ghApi("/contents/" + SYNC_PATH + "?ref=" + encodeURIComponent(sha), { raw:true });
+  return JSON.parse(await textFromBytes(bytes));
+}
+let history = [];
+function renderHistory(){
+  const box = $("historyList");
+  if (!history.length){ box.innerHTML = ""; return; }
+  box.innerHTML = '<div class="bkmeta" style="margin:10px 0 2px;">Every saved version, newest first. '
+    + 'Opening one adds any document it holds that is not already open.</div>'
+    + history.map((h,i)=>{
+        // the app writes its own commit messages, so the count comes for free
+        const m = /atlas: (\d+) document/.exec(h.msg || "");
+        const what = m ? m[1] + (m[1] === "1" ? " document" : " documents") : "version";
+        return '<div class="bkrow"><div class="bkmain">'
+             + '<div class="bktitle">' + esc(what) + '</div>'
+             + '<div class="bkmeta">' + esc(new Date(h.at).toLocaleString()) + ' · '
+             + esc(String(h.sha).slice(0,7)) + '</div></div>'
+             + '<button class="writebtn" data-hist="' + i + '">Open</button></div>';
+      }).join("");
+}
+$("historyBtn").addEventListener("click", async ()=>{
+  if (!syncOn()){ setError("Add your sync repo and token in Settings first - the history is read with them."); return; }
+  setError(null);
+  $("historyBtn").disabled = true;
+  setSync("Reading the sync history…", "busy");
+  try {
+    const list = await ghApi("/commits?path=" + encodeURIComponent(SYNC_PATH) + "&per_page=30");
+    history = (list||[]).map(c=> ({ sha: c.sha,
+      at: ((c.commit||{}).committer||{}).date || ((c.commit||{}).author||{}).date,
+      msg: (c.commit||{}).message || "" }));
+    renderHistory();
+    setSync(history.length ? history.length + " saved versions found" : "No history for that file yet.", null);
+  } catch(e){
+    setSync(syncError(e), "bad");
+  }
+  $("historyBtn").disabled = false;
+});
+$("historyList").addEventListener("click", async (e)=>{
+  const btn = e.target.closest("button[data-hist]");
+  if (!btn) return;
+  const h = history[parseInt(btn.dataset.hist, 10)];
+  if (!h) return;
+  btn.disabled = true; btn.textContent = "Opening…";
+  try {
+    const parsed = await stateAtCommit(h.sha);
+    await restoreFromState(parsed && parsed.docs, "version from " + new Date(h.at).toLocaleString());
+  } catch(err){
+    setSync(syncError(err), "bad");
+  }
+  btn.disabled = false; btn.textContent = "Open";
+});
+
+$("importSyncBtn").addEventListener("click", ()=> $("syncFileInput").click());
+$("syncFileInput").addEventListener("change", (e)=>{
+  const f = e.target.files && e.target.files[0];
+  e.target.value = "";
+  importSyncFile(f);
+});
+
 // ---------------- highlights ----------------
 // Ranges are stored as [start, end, colour] character offsets into a block's plain
 // text, never as DOM positions - so they survive re-rendering, redoing an answer,
 // and moving the answers to the back of the document.
 const HL_BASE = new Map();   // hlkey -> the block's HTML before any highlighting
 let hlPending = null;        // [{key, start, end}] captured from the live selection
+let hlImagesOnly = false;    // selection outside any highlightable block
 
 function hlRanges(key){ return (doc && doc.hl && doc.hl[key]) || []; }
 function setRanges(key, list){
@@ -1144,7 +1461,7 @@ function repaintKey(key){
 }
 function captureSelection(){
   const sel = window.getSelection();
-  hlPending = null;
+  hlPending = null; hlImagesOnly = false;
   if (!sel || sel.isCollapsed || !sel.rangeCount) return null;
   const r = sel.getRangeAt(0);
   if (!String(sel).trim()) return null;
@@ -1156,12 +1473,20 @@ function captureSelection(){
     const e = box.contains(r.endContainer)   ? textOffset(box, r.endContainer,   r.endOffset)   : len;
     if (e > s) hits.push({ key: box.dataset.hlkey, start: s, end: e });
   });
-  if (!hits.length) return null;
+  if (!hits.length){
+    // not highlightable, but still words: offer the lookup on its own
+    const box = r.commonAncestorContainer;
+    const el = box && (box.nodeType === 1 ? box : box.parentElement);
+    if (!el || !el.closest || !el.closest("#result")) return null;
+    hlImagesOnly = true;
+    return r.getBoundingClientRect();
+  }
   hlPending = hits;
   return r.getBoundingClientRect();
 }
 function showHlBar(rect){
   const bar = $("hlbar");
+  bar.classList.toggle("imgonly", !!hlImagesOnly);
   bar.style.display = "flex";
   const w = bar.offsetWidth || 210, h = bar.offsetHeight || 36;
   let left = rect.left + window.scrollX + rect.width/2 - w/2;
@@ -1171,7 +1496,25 @@ function showHlBar(rect){
   bar.style.left = left + "px";
   bar.style.top = top + "px";
 }
-function hideHlBar(){ $("hlbar").style.display = "none"; hlPending = null; }
+function hideHlBar(){ $("hlbar").style.display = "none"; hlPending = null; hlImagesOnly = false; }
+// Reading a description of a sign is not the same as having seen it, so any selected
+// phrase can be thrown straight at Google Images. The document's topic is prepended
+// when the selection does not already contain it - "signal on T1" alone returns
+// nothing useful, "craniopharyngioma signal on T1" returns the actual pictures.
+function imageSearch(){
+  const sel = window.getSelection();
+  let q = sel ? String(sel).replace(/\s+/g, " ").trim() : "";
+  if (!q) return;
+  q = q.slice(0, 200)
+       .replace(/^(what|which|how|why|when|where|who|name|describe|compare|list|explain|discuss|outline)\b[\s,'"]*(is|are|does|do|the|a|an)?\s*/i, "")
+       .replace(/[?"]/g, "")
+       .trim();
+  const topic = String((doc && (doc.topic || doc.title)) || "").trim();
+  const full = (topic && q.toLowerCase().indexOf(topic.toLowerCase()) === -1 ? topic + " " : "") + q;
+  window.open("https://www.google.com/search?tbm=isch&q=" + encodeURIComponent(full),
+              "_blank", "noopener");
+  hideHlBar();
+}
 function applyPending(patch){
   if (!hlPending) return;
   hlPending.forEach(h=>{
@@ -1260,10 +1603,18 @@ function mergeClosed(a, b){
   Object.keys(b || {}).forEach(k=>{ if (!out[k] || b[k] > out[k]) out[k] = b[k]; });
   return out;
 }
-function applyClosed(list, closed){
+// `open` holds every document on screen in this browser right now. A tombstone can
+// stop a closed document coming BACK, but it must never take away something you are
+// looking at: a stale close - from this device or another - once deleted a file that
+// had just been opened, mid-session, while it was being worked on.
+function applyClosed(list, closed, open){
   const keep = [];
   (list||[]).forEach(d=>{
     const ts = closed[d.id];
+    if (open && open[d.id]){                         // open here: it is alive, full stop
+      if (ts) delete closed[d.id];                   // and tell the other devices so
+      keep.push(d); return;
+    }
     if (ts && (d.updatedAt || 0) <= ts) return;      // closed, and untouched since
     if (ts) delete closed[d.id];                     // edited after closing: it lives on
     keep.push(d);
@@ -1405,11 +1756,20 @@ async function syncNow(opts){
       if (!theirs || !Array.isArray(theirs.docs))
         throw new Error("the synced file could not be read - nothing was overwritten");
       const activeId = doc && doc.id;
+      const openNow = {}, before = docs.slice();
+      docs.forEach(d=>{ if (d && d.id) openNow[d.id] = true; });
       closedDocs = pruneClosed(mergeClosed(closedDocs, theirs.closed), 90);
-      docs = applyClosed(mergeDocLists(docs, theirs.docs.map(normaliseHl)), closedDocs);
+      docs = applyClosed(mergeDocLists(docs, theirs.docs.map(normaliseHl)), closedDocs, openNow);
+      // belt and braces: if a merge ever drops something that was on screen, it is
+      // copied to the recovery list first and said out loud rather than vanishing
+      const dropped = before.filter(d=> d && d.id && !docs.some(x=> x.id === d.id));
+      dropped.forEach(d=>{ backupDoc(d, "removed by sync"); docs.push(d); });
+      if (dropped.length) setError("Sync tried to remove " + dropped.length
+        + " open document(s). They were kept, and copies are under “Recover a document”.");
       const at = docs.findIndex(d=> d.id === activeId);
       activeIdx = at >= 0 ? at : 0;
       doc = docs[activeIdx] || null;
+      showFileTarget();                              // the handle follows the document id
       if (!docs.length){ $("result").style.display = "none"; $("hero").style.display = "block"; }
     } else {
       sha = null;                                             // the file does not exist yet
@@ -1968,7 +2328,8 @@ $("parseBtn").addEventListener("click", ()=>{
 $("hlbar").addEventListener("mousedown", (e)=> e.preventDefault());   // keep the selection alive
 $("hlbar").addEventListener("click", (e)=>{
   const btn = e.target.closest("button"); if (!btn) return;
-  if (btn.dataset.clear) applyPending({ clear:true });
+  if (btn.dataset.img) imageSearch();
+  else if (btn.dataset.clear) applyPending({ clear:true });
   else if (btn.dataset.ul) applyPending({ ul:1 });
   else if (btn.dataset.fill != null) applyPending({ fill: parseInt(btn.dataset.fill, 10) });
 });
@@ -2006,12 +2367,14 @@ const CAN_WRITE_FILES =!!((typeof window.showOpenFilePicker === "function")
                      && (typeof window.showSaveFilePicker === "function")
                      && window.isSecureContext && location.protocol !== "file:");
 function setHandle(h){
-  handles[activeIdx] = h || null;
-  fileHandle = h || null;
+  if (doc && doc.id){
+    if (h) fileHandles[doc.id] = h; else delete fileHandles[doc.id];
+  }
   showFileTarget();
 }
 function showFileTarget(){
   const el = $("fileTarget");
+  const fileHandle = currentHandle();
   if (fileHandle){
     el.textContent = "Saving to " + fileHandle.name;
     el.style.display = "block";
@@ -2030,6 +2393,36 @@ async function writeToHandle(h){
   const w = await h.createWritable();
   await w.write(pageHtml());
   await w.close();
+}
+// The last line of defence. Before replacing a file, read what is actually in it:
+// if it holds a DIFFERENT saved document, that document is copied into the recovery
+// list and the write has to be confirmed. A wrong handle can then cost a click,
+// never an outline.
+async function fileHoldsOther(h){
+  try {
+    const text = await (await h.getFile()).text();
+    if (!text.trim()) return null;                       // empty or brand new
+    const other = docFromSavedHtml(text);
+    if (!other) return null;                             // not one of ours
+    if (doc && other.id && other.id === doc.id) return null;
+    if (doc && !other.id && (other.title||other.topic) === (doc.title||doc.topic)) return null;
+    return other;
+  } catch(e){ return null; }                             // unreadable: the write will report
+}
+async function safeWrite(h){
+  const other = await fileHoldsOther(h);
+  if (other){
+    await backupDoc(normaliseHl(other), "in the file being replaced");
+    const ok = window.confirm(
+      "“" + h.name + "” currently holds a different document:\n\n    "
+      + (other.title || other.topic || "Untitled")
+      + "\n\nSaving now replaces it with:\n\n    " + (doc.title || doc.topic || "Untitled")
+      + "\n\nA copy of the file's document has been put in “Recover a document” either way."
+      + "\n\nReplace the file?");
+    if (!ok) return false;
+  }
+  await writeToHandle(h);
+  return true;
 }
 function downloadHtml(){
   const blob = new Blob([pageHtml()], { type:"text/html" });
@@ -2085,8 +2478,9 @@ $("clearBtn").addEventListener("click", ()=>{
   if (!window.confirm("Close " + (n > 1 ? "all " + n + " documents" : "this document")
       + " and delete every saved answer and highlight?"
       + (syncOn() ? "\n\nSync is on, so this removes them from your other devices too." : ""))) return;
+  docs.forEach(d=> backupDoc(d, "cleared"));         // recoverable even from here
   docs.forEach(d=>{ if (d && d.id) closedDocs[d.id] = now(); });
-  docs = []; handles = []; doc = null; activeIdx = 0;
+  docs = []; fileHandles = {}; doc = null; activeIdx = 0;
   saveDoc();
   renderTabs();
   $("result").style.display = "none"; $("hero").style.display = "block";
@@ -2172,9 +2566,14 @@ function pageHtml(){
 }
 $("dlBtn").addEventListener("click", async ()=>{
   // straight back into the file that is open, when the browser allows it
+  const fileHandle = currentHandle();
   if (fileHandle){
     try {
-      if (await ensureWritable(fileHandle)){ await writeToHandle(fileHandle); flashSaved("Saved ✓"); return; }
+      if (await ensureWritable(fileHandle)){
+        if (await safeWrite(fileHandle)) flashSaved("Saved ✓");
+        else setError("Nothing was written - that file still holds the other document.");
+        return;
+      }
       setError("Permission to write that file was declined - saving a copy instead.");
     } catch(err){ setError("Could not write to " + fileHandle.name + ": " + err.message); }
   }
@@ -2184,7 +2583,7 @@ $("dlBtn").addEventListener("click", async ()=>{
         suggestedName: (doc.title || doc.topic || "answers").replace(/[^a-z0-9]+/gi,"-").toLowerCase() + ".html",
         types:[{ description:"Saved page", accept:{ "text/html":[".html"] } }]
       });
-      await writeToHandle(h);
+      if (!await safeWrite(h)){ setError("Nothing was written."); return; }
       setHandle(h); flashSaved("Saved ✓");
       return;
     } catch(err){
@@ -2271,7 +2670,7 @@ document.addEventListener("visibilitychange", ()=>{
       const later = store.get(DOC_KEY);
       if (later){ try { const l = JSON.parse(later); if (l && l.categories) d = l; } catch(e){} }
       doc = normaliseHl(d);
-      docs = [doc]; handles = [null]; activeIdx = 0;
+      docs = [doc]; activeIdx = 0;
       syncInputs();
       render();
       return;
