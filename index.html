@@ -17,23 +17,40 @@
   .pulsing { animation:pulse 1.4s ease-in-out infinite; }
   @media (prefers-reduced-motion: reduce){ *{animation:none!important;transition:none!important} }
 
-  header.top { display:flex; align-items:center; gap:10px; margin-bottom:24px; }
+  header.top { display:flex; align-items:center; gap:10px; margin-bottom:18px; }
   .logo { font-size:20px; } .brand { font-size:19px; font-weight:700; }
   .settings-btn { margin-left:auto; background:none; border:1px solid #d9d9d9; border-radius:999px; padding:7px 14px; font-size:13px; color:#555; }
 
-  .panel { border:1px solid #e5e5e5; border-radius:16px; padding:16px; margin-bottom:20px; background:#fafafa; }
-  .panel label { display:block; font-size:12px; font-weight:600; color:#767676; letter-spacing:.04em; text-transform:uppercase; margin:10px 0 5px; }
-  .panel input, .panel select, .panel textarea { width:100%; padding:11px 13px; font-size:15px; border:1px solid #d9d9d9; border-radius:10px; background:#fff; }
-  .panel textarea { min-height:190px; resize:vertical; line-height:1.5; font-size:14px; }
+  .panel { border:1px solid #e5e5e5; border-radius:14px; padding:13px 15px; margin-bottom:13px; background:#fafafa; }
+  .panel label { display:block; font-size:11px; font-weight:600; color:#767676; letter-spacing:.04em; text-transform:uppercase; margin:9px 0 4px; }
+  .panel input, .panel select, .panel textarea { width:100%; padding:9px 11px; font-size:14.5px; border:1px solid #d9d9d9; border-radius:9px; background:#fff; }
+  /* short until you are actually using it, then out of the way of your own text */
+  .panel textarea { min-height:88px; resize:vertical; line-height:1.5; font-size:14px; transition:min-height .15s; }
+  .panel textarea:focus { min-height:200px; }
+  /* two fields on one line: neither needs the full width */
+  .two { display:flex; gap:10px; }
+  .two > div { flex:1 1 0; min-width:0; }
+  .two label { margin-top:0; }
+  .phead { display:flex; align-items:center; gap:8px; font-size:15px; font-weight:600; color:#111;
+           width:100%; background:none; border:none; padding:0; text-align:left; font-family:inherit; }
+  .phead .chev { margin-left:auto; font-size:11px; font-weight:400; color:#9a9a9a; }
+  .panel.shut .pbody { display:none; }
+  .panel.shut { padding:11px 15px; margin-bottom:11px; }
+  /* the sync fields are set once and then never touched again */
+  details.sub { border-top:1px solid #e5e5e5; margin-top:12px; }
+  details.sub > summary { cursor:pointer; list-style:none; font-size:13px; color:#555; padding:9px 0 0; }
+  details.sub > summary::-webkit-details-marker { display:none; }
+  details.sub > summary::before { content:"\25b8  "; color:#9a9a9a; }
+  details.sub[open] > summary::before { content:"\25be  "; }
   .panel.dropping { outline:2px dashed #111; outline-offset:3px; background:#f2f2f2; }
-  .hint { font-size:12.5px; color:#9a9a9a; line-height:1.5; margin-top:8px; }
+  .hint { font-size:12px; color:#9a9a9a; line-height:1.45; margin-top:7px; }
   .hint a { color:#555; }
 
-  .btn-primary { padding:13px 24px; font-size:15px; font-weight:600; border-radius:999px; border:none; background:#111; color:#fff; }
+  .btn-primary { padding:11px 22px; font-size:14.5px; font-weight:600; border-radius:999px; border:none; background:#111; color:#fff; }
   .btn-primary:disabled { background:#c9c9c9; }
-  .btn-outline { padding:13px 24px; font-size:15px; font-weight:600; border-radius:999px; border:1px solid #111; background:#fff; color:#111; }
+  .btn-outline { padding:11px 22px; font-size:14.5px; font-weight:600; border-radius:999px; border:1px solid #111; background:#fff; color:#111; }
   .btn-outline:disabled { border-color:#d9d9d9; color:#bbb; }
-  .row { display:flex; gap:8px; flex-wrap:wrap; margin:14px 0 4px; }
+  .row { display:flex; gap:8px; flex-wrap:wrap; margin:12px 0 2px; }
   .row .btn-primary, .row .btn-outline { flex:1 1 150px; }
 
   .hero h1 { font-size:32px; font-weight:400; line-height:1.25; margin-bottom:14px; }
@@ -332,46 +349,62 @@
   </header>
 
   <div class="panel" id="settingsPanel">
-    <div style="font-size:15px;font-weight:600;">Setup (one time)</div>
-    <label for="provider">Provider</label>
-    <select id="provider">
-      <option value="gemini" selected>Google Gemini &mdash; free tier</option>
-      <option value="groq">Groq &mdash; free tier, very fast</option>
-      <option value="openrouter">OpenRouter &mdash; free models</option>
-    </select>
+    <div class="phead">Setup <span class="chev">one time</span></div>
+    <div class="two" style="margin-top:8px;">
+      <div>
+        <label for="provider">Provider</label>
+        <select id="provider">
+          <option value="gemini" selected>Google Gemini &mdash; free</option>
+          <option value="groq">Groq &mdash; free, fast</option>
+          <option value="openrouter">OpenRouter &mdash; free models</option>
+        </select>
+      </div>
+      <div>
+        <label for="modelName">Model</label>
+        <select id="modelName"></select>
+      </div>
+    </div>
+    <input type="text" id="customModel" placeholder="Type an exact model name" style="display:none;margin-top:6px;">
     <label for="apiKey">API key</label>
     <input type="password" id="apiKey" placeholder="Paste your key here" autocomplete="off">
-    <label for="modelName">Model</label>
-    <select id="modelName"></select>
-    <input type="text" id="customModel" placeholder="Type an exact model name" style="display:none;margin-top:6px;">
     <p class="hint" id="providerHint"></p>
 
-    <div style="border-top:1px solid #e5e5e5;margin:16px 0 0;padding-top:14px;">
-      <div style="font-size:15px;font-weight:600;">Sync across your devices (optional)</div>
-      <label for="syncRepo">Private repo</label>
-      <input type="text" id="syncRepo" placeholder="your-name/atlas-sync" autocomplete="off">
-      <label for="syncToken">GitHub token</label>
-      <input type="password" id="syncToken" placeholder="github_pat_…" autocomplete="off">
-      <div class="row" style="margin:12px 0 0;">
-        <button class="btn-outline" id="syncNowBtn">Sync now</button>
+    <details class="sub" id="syncSub">
+      <summary>Sync across your devices (optional)</summary>
+      <div class="two" style="margin-top:6px;">
+        <div>
+          <label for="syncRepo">Private repo</label>
+          <input type="text" id="syncRepo" placeholder="your-name/atlas-sync" autocomplete="off">
+        </div>
+        <div>
+          <label for="syncToken">GitHub token</label>
+          <input type="password" id="syncToken" placeholder="github_pat_…" autocomplete="off">
+        </div>
       </div>
+      <div class="row"><button class="btn-outline" id="syncNowBtn">Sync now</button></div>
       <div class="syncstatus" id="syncStatus" style="display:none;"></div>
-      <p class="hint">Create an <strong>empty private repo</strong> and a fine-grained token with
-        <em>Contents: read and write</em> on just that repo, then paste both here on each device.
-        Work merges page by page, so answering on your phone and highlighting on your laptop both survive.
-        <strong>Do not use your public Pages repo</strong> &mdash; your notes would be readable by anyone.</p>
-    </div>
+      <p class="hint">An <strong>empty private repo</strong> plus a fine-grained token with
+        <em>Contents: read and write</em> on just that repo, on each device. Work merges page by page.
+        <strong>Never your public Pages repo</strong> &mdash; your notes would be readable by anyone.</p>
+    </details>
   </div>
 
   <div class="panel" id="pastePanel">
-    <div style="font-size:15px;font-weight:600;">Paste a taxonomy</div>
-    <label for="topicInput">Topic of the outline you are pasting</label>
-    <input type="text" id="topicInput" placeholder="e.g. Craniopharyngioma: imaging features">
-    <label for="answerStyle">Answer style</label>
-    <select id="answerStyle">
-      <option value="exam" selected>Exam &mdash; radiology viva level</option>
-      <option value="general">General &mdash; plain-language learner</option>
-    </select>
+    <button class="phead" id="pasteToggle" aria-expanded="true">Paste a taxonomy<span class="chev">&#9662;</span></button>
+    <div class="pbody">
+    <div class="two" style="margin-top:8px;">
+      <div>
+        <label for="topicInput">Topic being pasted</label>
+        <input type="text" id="topicInput" placeholder="e.g. Craniopharyngioma: imaging">
+      </div>
+      <div>
+        <label for="answerStyle">Answer style</label>
+        <select id="answerStyle">
+          <option value="exam" selected>Exam &mdash; viva level</option>
+          <option value="general">General &mdash; plain language</option>
+        </select>
+      </div>
+    </div>
     <label for="pasteBox">Taxonomy text</label>
     <textarea id="pasteBox" placeholder="Paste the outline here - categories, page titles, priorities and questions. Copied straight off the screen, from the .md export, or just a list of questions: all three work."></textarea>
     <div class="row">
@@ -380,7 +413,8 @@
       <button class="btn-outline" id="clearBtn">Clear saved work</button>
     </div>
     <input type="file" id="fileInput" accept=".html,.htm,.md,.txt,text/html,text/plain" style="display:none;">
-    <p class="hint">Everything stays in this browser. Answers are saved locally, so a refresh will not lose them. <strong>Load saved page</strong> reopens an HTML file you saved earlier, with its answers and highlights &mdash; you can also drop the file anywhere on this panel.</p>
+    <p class="hint">Everything stays in this browser and survives a refresh. <strong>Load saved page</strong> reopens
+    an HTML file saved earlier, answers and highlights included &mdash; or just drop it on this panel.</p>
 
     <button class="linklike" id="recoverBtn" style="padding-bottom:0;">Recover a document</button>
     <div id="recoverPanel" style="display:none;">
@@ -389,17 +423,16 @@
       touches what is already loaded &mdash; it comes back as its own tab.</p>
       <div id="backupList"></div>
       <div class="row" style="margin-top:4px;">
-        <button class="btn-outline" id="historyBtn">Find a synced document</button>
+        <button class="btn-outline" id="historyBtn">Find a lost page</button>
         <button class="btn-outline" id="importSyncBtn">Restore from a sync file</button>
-        <button class="btn-outline" id="forgetBackupsBtn">Delete all copies</button>
       </div>
       <div class="syncstatus" id="recoverStatus" style="display:none;"></div>
       <div id="historyList"></div>
       <input type="file" id="syncFileInput" accept=".json,.gz,.gzip,application/json,application/gzip" style="display:none;">
-      <p class="hint">Lost something that had already synced? <strong>Browse sync history</strong> reads every
-      past version of <em>atlas-state.json</em> straight out of your private repo using the token in Settings,
-      so there is nothing to download by hand. Restoring never touches what is open &mdash; recovered
-      documents arrive as new tabs.</p>
+      <button class="linklike" id="forgetBackupsBtn" style="padding:8px 0 0;">Delete all stored copies</button>
+      <p class="hint"><strong>Find a lost page</strong> reads back through what sync has saved and lists the
+      pages it finds by file name. Pick one and it opens as its own tab. Everything else stays as it is.</p>
+    </div>
     </div>
   </div>
 
@@ -569,6 +602,15 @@ $("modelName").addEventListener("change", ()=>{
   saveSettings();
 });
 $("customModel").addEventListener("change", saveSettings);
+// The input half is only in the way once there is something to read. It folds to a
+// single line as soon as a document is open, and unfolds on its own if a paste fails.
+function setPasteOpen(open){
+  $("pastePanel").classList.toggle("shut", !open);
+  $("pasteToggle").querySelector(".chev").innerHTML = open ? "&#9662;" : "&#9656;";
+  $("pasteToggle").setAttribute("aria-expanded", open ? "true" : "false");
+}
+$("pasteToggle").addEventListener("click", ()=> setPasteOpen($("pastePanel").classList.contains("shut")));
+function pasteError(msg){ setError(msg); setPasteOpen(true); }
 $("settingsToggle").addEventListener("click", ()=>{
   const p = $("settingsPanel");
   p.style.display = p.style.display === "none" ? "block" : "none";
@@ -579,6 +621,7 @@ $("syncNowBtn").addEventListener("click", ()=> syncNow());
 loadSettings();
 $("syncRepo").value = store.get("sync_repo") || "";
 $("syncToken").value = store.get("sync_token") || "";
+if ($("syncRepo").value) $("syncSub").open = true;      // already set up: show its status
 
 // ---------------- model call ----------------
 const sleep = (ms)=> new Promise(r=>setTimeout(r,ms));
@@ -1040,6 +1083,8 @@ function addDoc(d){
   docs.push(d);
   backupDoc(d, "opened");            // the copy that makes losing it impossible
   setActive(docs.length - 1);
+  // ...but not while the recovery list is open, or it would fold away under you
+  if ($("recoverPanel").style.display === "none") setPasteOpen(false);
 }
 function closeDoc(i){
   const gone = docs[i];
@@ -1273,7 +1318,20 @@ async function restoreFromState(list, label){
 async function ghApi(path, opts){
   opts = opts || {};
   const c = syncCfg();
-  const res = await fetch("https://api.github.com/repos/" + c.repo + path, {
+  const url = "https://api.github.com/repos/" + c.repo + path;
+  let res;
+  try {
+    res = await ghApiFetch(url, opts);
+  } catch(netErr){
+    const err = new Error(netErr.message || "network error");
+    err.net = true; err.url = url;
+    throw err;
+  }
+  return await ghApiRead(res, opts);
+}
+function ghApiFetch(url, opts){
+  const c = syncCfg();
+  return fetch(url, {
     cache: "no-store",
     headers: { "Authorization": "Bearer " + c.token,
                // raw hands back the file bytes, and works past the 1 MB limit where
@@ -1281,6 +1339,8 @@ async function ghApi(path, opts){
                "Accept": opts.raw ? "application/vnd.github.raw" : "application/vnd.github+json",
                "X-GitHub-Api-Version": "2022-11-28" }
   });
+}
+async function ghApiRead(res, opts){
   if (!res.ok){
     let detail = "HTTP " + res.status;
     try { const j = await res.json(); if (j.message) detail = j.message; } catch(e){}
@@ -1292,12 +1352,12 @@ async function stateAtCommit(sha){
   const bytes = await ghApi("/contents/" + SYNC_PATH + "?ref=" + encodeURIComponent(sha), { raw:true });
   return JSON.parse(await textFromBytes(bytes));
 }
-// Walking the history one commit at a time and unpacking each state file gives a
-// list of DOCUMENTS rather than a list of commits: every outline that has ever been
-// synced, each at the newest version it appears in. Commits are meaningless to read
-// back - "which of these forty saves held my craniopharyngioma outline?" - whereas a
-// list of titles is the actual question being asked.
-let histCommits = [], histScanned = 0, histDocs = [], histSeen = {}, histBusy = false;
+// Reading back through the saved versions and unpacking each one gives a list of
+// PAGES - the file names you actually save and look for - rather than a list of
+// commits. It stops as soon as it has enough of them.
+const HIST_WANT = 15, HIST_MAX_VERSIONS = 25;
+let histDocs = [], histSeen = {};
+
 // Recovery has its own status line. The sync one lives inside Settings, which is
 // collapsed as soon as an API key is saved - so every message about reading the
 // history was being written somewhere invisible, and the whole thing looked dead.
@@ -1311,89 +1371,64 @@ function setRecover(msg, kind){
 
 function renderHistoryList(){
   const box = $("historyList");
-  if (!histCommits.length){ box.innerHTML = ""; return; }
-  let html = '<div class="bkmeta" style="margin:10px 0 2px;">'
-    + (histDocs.length ? histDocs.length + " document(s) found in the newest " + histScanned
-        + " of " + histCommits.length + " saved versions. Each opens at its most recent version, on its own tab."
-      : "Nothing found yet in the newest " + histScanned + " versions.")
-    + '</div>';
-  html += histDocs.map((h,i)=>
+  if (!histDocs.length){ box.innerHTML = ""; return; }
+  box.innerHTML = histDocs.map((h,i)=>
       '<div class="bkrow"><div class="bkmain">'
-    + '<div class="bktitle">' + esc(h.title) + '</div>'
-    + '<div class="bkmeta">' + esc(h.note) + '<br>last synced ' + esc(whenText(h.at))
+    + '<div class="bktitle">' + esc(h.file) + '</div>'
+    + '<div class="bkmeta">' + esc(h.note) + ' · last synced ' + esc(whenText(h.at))
     + (h.open ? ' · already open' : '') + '</div></div>'
-    + '<button class="writebtn" data-doc="' + i + '">' + (h.open ? "Open a copy" : "Open") + '</button></div>').join("");
-  if (histScanned < histCommits.length){
-    html += '<div class="bkrow"><div class="bkmain"><div class="bkmeta">'
-         +  (histCommits.length - histScanned) + ' older versions not read yet.</div></div>'
-         +  '<button class="writebtn" data-more="1">Look further back</button></div>';
-  }
-  box.innerHTML = html;
-}
-// Each state file is read whole, then thrown away except for documents not seen in a
-// newer one - so memory holds one copy per outline, not one per commit.
-async function histScan(n){
-  if (histBusy) return;
-  histBusy = true;
-  const stop = Math.min(histCommits.length, histScanned + n);
-  let failed = 0;
-  try {
-    while (histScanned < stop){
-      const c = histCommits[histScanned];
-      setRecover("Reading saved version " + (histScanned + 1) + " of " + histCommits.length + "…", "busy");
-      let state = null;
-      try { state = await stateAtCommit(c.sha); }
-      catch(e){ failed++; histScanned++; continue; }     // a bad version must not stop the walk
-      const at = new Date(c.at).getTime() || now();
-      ((state && state.docs) || []).forEach(raw=>{
-        if (!raw || !raw.categories || !raw.categories.length) return;
-        const id = raw.id || ("t:" + (raw.title || raw.topic || ""));
-        if (histSeen[id]) return;                        // a newer version already won
-        histSeen[id] = true;
-        histDocs.push({ title: raw.title || raw.topic || "Untitled", note: docStats(raw),
-                        at: at, open: docs.some(x=> x.id === raw.id),
-                        json: JSON.stringify(raw) });
-      });
-      histScanned++;
-    }
-    renderHistoryList();
-    setRecover(histDocs.length + " document(s) found across " + histScanned + " version(s)"
-      + (failed ? " · " + failed + " could not be read" : ""), null);
-  } finally { histBusy = false; }
+    + '<button class="writebtn" data-doc="' + i + '">'
+    + (h.open ? "Open a copy" : "Open") + '</button></div>').join("");
 }
 $("historyBtn").addEventListener("click", async ()=>{
   if (!syncOn()){ setRecover("Add your sync repo and token in Settings first - the history is read with them.", "bad"); return; }
-  setError(null); setRecover(null);
-  $("historyBtn").disabled = true;
-  setRecover("Looking for saved versions…", "busy");
+  setError(null);
+  const btn = $("historyBtn");
+  btn.disabled = true;
+  histDocs = []; histSeen = {};
+  $("historyList").innerHTML = "";
+  setRecover("Looking…", "busy");
   try {
-    const list = await ghApi("/commits?path=" + encodeURIComponent(SYNC_PATH) + "&per_page=60");
-    histCommits = (list||[]).map(c=> ({ sha: c.sha,
-      at: ((c.commit||{}).committer||{}).date || ((c.commit||{}).author||{}).date }));
-    histScanned = 0; histDocs = []; histSeen = {};
-    if (!histCommits.length){
-      $("historyList").innerHTML = "";
-      setRecover("No saved versions of " + SYNC_PATH + " in that repo yet.", "bad");
+    const commits = await ghApi("/commits?path=" + encodeURIComponent(SYNC_PATH) + "&per_page=" + HIST_MAX_VERSIONS);
+    if (!commits || !commits.length){
+      setRecover("Nothing has been synced to that repo yet.", "bad");
     } else {
-      await histScan(15);                                // enough for 15-20 outlines
+      let read = 0;
+      for (const c of commits){
+        if (histDocs.length >= HIST_WANT) break;
+        read++;
+        setRecover("Reading " + read + " of " + commits.length + "…", "busy");
+        let state = null;
+        try { state = await stateAtCommit(c.sha); } catch(e){ continue; }   // skip a bad one
+        const at = new Date(((c.commit||{}).committer||{}).date
+                         || ((c.commit||{}).author||{}).date).getTime() || now();
+        ((state && state.docs) || []).forEach(raw=>{
+          if (!raw || !raw.categories || !raw.categories.length) return;
+          const id = raw.id || ("t:" + (raw.title || raw.topic || ""));
+          if (histSeen[id]) return;                    // a newer version already won
+          histSeen[id] = true;
+          histDocs.push({ file: fileNameFor(raw), note: docStats(raw), at: at,
+                          open: docs.some(x=> x.id === raw.id), json: JSON.stringify(raw) });
+        });
+      }
+      renderHistoryList();
+      setRecover(histDocs.length
+        ? histDocs.length + " page(s) found across the last " + read + " saves"
+        : "No pages found in the last " + read + " saves.", histDocs.length ? null : "bad");
     }
   } catch(e){
-    $("historyList").innerHTML = "";
     setRecover(syncError(e), "bad");
   }
-  $("historyBtn").disabled = false;
+  btn.disabled = false;
 });
 $("historyList").addEventListener("click", async (e)=>{
-  const more = e.target.closest("button[data-more]");
-  if (more){ more.disabled = true; more.textContent = "Reading…"; await histScan(10); return; }
   const btn = e.target.closest("button[data-doc]");
   if (!btn) return;
   const h = histDocs[parseInt(btn.dataset.doc, 10)];
   if (!h) return;
   btn.disabled = true; btn.textContent = "Opening…";
-  try {
-    await restoreFromState([JSON.parse(h.json)], "the sync history");
-  } catch(err){ setRecover("That document could not be read: " + err.message, "bad"); }
+  try { await restoreFromState([JSON.parse(h.json)], h.file); }
+  catch(err){ setRecover("That page could not be read: " + err.message, "bad"); }
   btn.disabled = false; btn.textContent = "Open";
   renderHistoryList();
 });
@@ -1781,6 +1816,13 @@ async function ghFetch(method, body, opts){
   return j;
 }
 function syncError(e){
+  // fetch rejects with a bare TypeError for everything that never reached the
+  // server: no connection, a blocked or malformed URL, an extension or VPN in the
+  // way, or a page running from a file:// path. The URL is attached at the call
+  // site precisely so this message can name it.
+  if (e && e.net) return "The request never reached GitHub: " + e.url
+    + " · check the repo is exactly owner/name with no spaces, that you are online, "
+    + "and that no extension or network filter is blocking api.github.com.";
   if (e.status === 401) return "Sync: token rejected - check it has not expired.";
   if (e.status === 404) return "Sync: repo not found, or the token cannot see it.";
   if (e.status === 403) return "Sync: access refused - the token needs Contents read and write.";
@@ -2320,7 +2362,7 @@ function ingestText(text){
   if (saved){ restoreDoc(saved); setProgress(null); return true; }
   $("pasteBox").value = text;
   if (/<html|<!DOCTYPE/i.test(text.slice(0, 400))){
-    setError("That HTML file has no saved outline in it - only pages saved from here can be reopened.");
+    pasteError("That HTML file has no saved outline in it - only pages saved from here can be reopened.");
     return false;
   }
   $("parseBtn").click();
@@ -2346,14 +2388,14 @@ function docFromSavedHtml(raw){
 }
 $("parseBtn").addEventListener("click", ()=>{
   const raw = $("pasteBox").value;
-  if (!raw.trim()){ setError("Paste the outline into the box first."); return; }
+  if (!raw.trim()){ pasteError("Paste the outline into the box first."); return; }
 
   const restored = docFromSavedHtml(raw);
   if (restored){ restoreDoc(restored); return; }
 
   const parsed = parseTaxonomy(raw);
   if (!parsed.categories.length){
-    setError("Nothing question-shaped in that paste. It needs at least one line containing a question mark.");
+    pasteError("Nothing question-shaped in that paste. It needs at least one line containing a question mark.");
     return;
   }
 
@@ -2367,7 +2409,7 @@ $("parseBtn").addEventListener("click", ()=>{
       $("topicInput").value = parsed.categories[0].name;
       $("topicInput").focus();
       $("topicInput").select();
-      setError("Set the topic above first - it is the context for every answer. I guessed “"
+      pasteError("Set the topic above first - it is the context for every answer. I guessed “"
         + parsed.categories[0].name + "” from the paste; make it specific, then press again.");
       return;
     }
@@ -2482,12 +2524,18 @@ async function safeWrite(h){
   await writeToHandle(h);
   return true;
 }
+// the name a document saves itself under - used for the download, the save dialog
+// and the recovery list, so what you see in the list is what is on disk
+function fileNameFor(d){
+  return String((d && (d.title || d.topic)) || "answers")
+    .replace(/[^a-z0-9]+/gi, "-").toLowerCase().replace(/^-+|-+$/g, "") + ".html";
+}
 function downloadHtml(){
   const blob = new Blob([pageHtml()], { type:"text/html" });
   const url = URL.createObjectURL(blob);
   const a = document.createElement("a");
   a.href = url;
-  a.download = (doc.title || doc.topic || "answers").replace(/[^a-z0-9]+/gi,"-").toLowerCase() + ".html";
+  a.download = fileNameFor(doc);
   document.body.appendChild(a); a.click(); document.body.removeChild(a);
   setTimeout(()=> URL.revokeObjectURL(url), 1000);
 }
@@ -2521,7 +2569,12 @@ $("fileInput").addEventListener("change", (e)=>{
   e.target.value = "";               // so the same file can be picked twice
 });
 ["dragenter","dragover"].forEach(ev=>
-  $("pastePanel").addEventListener(ev, (e)=>{ e.preventDefault(); $("pastePanel").classList.add("dropping"); }));
+  $("pastePanel").addEventListener(ev, (e)=>{
+    e.preventDefault();
+    // a folded panel is a thin strip to aim at, so it opens up as you drag in
+    if ($("pastePanel").classList.contains("shut")) setPasteOpen(true);
+    $("pastePanel").classList.add("dropping");
+  }));
 ["dragleave","dragend"].forEach(ev=>
   $("pastePanel").addEventListener(ev, ()=> $("pastePanel").classList.remove("dropping")));
 $("pastePanel").addEventListener("drop", (e)=>{
@@ -2638,7 +2691,7 @@ $("dlBtn").addEventListener("click", async ()=>{
   if (CAN_WRITE_FILES){
     try {
       const h = await window.showSaveFilePicker({
-        suggestedName: (doc.title || doc.topic || "answers").replace(/[^a-z0-9]+/gi,"-").toLowerCase() + ".html",
+        suggestedName: fileNameFor(doc),
         types:[{ description:"Saved page", accept:{ "text/html":[".html"] } }]
       });
       if (!await safeWrite(h)){ setError("Nothing was written."); return; }
@@ -2735,6 +2788,7 @@ document.addEventListener("visibilitychange", ()=>{
     }
   }
   await loadDoc();
+  if (docs.length) setPasteOpen(false);          // straight to the content on a revisit
   // pull whatever the other device left behind, then push anything only here
   if (syncOn()) syncNow({ quiet:true });
 })();
