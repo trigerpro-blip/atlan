@@ -447,6 +447,10 @@
         This is my main device &mdash; when I close a tab here, close it on my other devices too
       </label>
       <div class="row"><button class="btn-outline" id="syncNowBtn">Sync now</button></div>
+      <details class="sub" id="syncDiag" style="border-top:none;margin-top:6px;">
+        <summary>Sync details</summary>
+        <div id="syncDiagBody" class="hint" style="margin-top:6px;line-height:1.7;"></div>
+      </details>
       <div class="syncstatus" id="syncStatus" style="display:none;"></div>
       <p class="hint">An <strong>empty private repo</strong> plus a fine-grained token with
         <em>Contents: read and write</em> on just that repo, on each device. Work merges page by page.
@@ -727,7 +731,36 @@ $("syncPrimary").addEventListener("change", ()=>{
   dirty = true; schedulePush();                      // push so the other devices learn it
 });
 $("syncPrimary").checked = store.get("sync_primary") === "1";
-function isPrimary(){ return store.get("sync_primary") === "1"; }
+setTimeout(renderSyncDiag, 0);
+function refreshPrimaryBox(){ $("syncPrimary").checked = isPrimary(); }
+// A pointer that can hover is a mouse or trackpad, which in practice means a
+// computer rather than a phone or tablet.
+const IS_COMPUTER = (function(){
+  try { return window.matchMedia("(pointer:fine)").matches; } catch(e){ return true; }
+})();
+function isPrimary(){
+  const v = store.get("sync_primary");
+  if (v === "1") return true;
+  if (v === "0") return false;
+  return false;                       // undecided until a sync settles it (see claimRole)
+}
+// Decide the role from what is actually in the synced file, once, without asking.
+// Whoever is already publishing keeps the job; otherwise a computer takes it.
+function claimRole(main){
+  if (store.get("sync_primary") !== null) return "";                 // the user has chosen
+  if (main && main.deviceId && main.deviceId !== DEVICE_ID){
+    store.set("sync_primary", "0");
+    syncMsg("Your main device is already set up elsewhere - this one follows it.");
+    return "follower";
+  }
+  if (!main && IS_COMPUTER){
+    store.set("sync_primary", "1");
+    syncMsg("This computer is now the main device: closing a tab here closes it everywhere.");
+    return "main";
+  }
+  return "";
+}
+function syncMsg(m){ syncInfo.roleNote = m; }
 loadSettings();
 $("syncRepo").value = store.get("sync_repo") || "";
 $("syncToken").value = store.get("sync_token") || "";
@@ -2017,6 +2050,29 @@ function pruneClosed(closed, days){
   Object.keys(closed).forEach(k=>{ if (tsAt(closed[k]) < cutoff) delete closed[k]; });
   return closed;
 }
+// `main` is { deviceId, at, ids:[...] } written by the main device on every push.
+// A device that is not the author reconciles its list down to those ids - anything
+// else was closed there - except documents opened HERE after that snapshot.
+// A tab the main device has never seen cannot have been closed by it: it was opened
+// here and has not reached the file yet, so its absence from the published list
+// means nothing. `pushedAt` is when a document last went into the file; only one
+// that was in there before the main device published can be judged by that publish.
+function reconcileToMain(list, main){
+  const dropped = [];
+  if (!main || !Array.isArray(main.ids) || !main.ids.length) return { list: list, dropped: dropped };
+  if (main.deviceId === DEVICE_ID) return { list: list, dropped: dropped };   // our own snapshot
+  const allowed = {};
+  main.ids.forEach(id=> allowed[id] = true);
+  const keep = [];
+  (list||[]).forEach(d=>{
+    if (!d || !d.id){ keep.push(d); return; }
+    if (allowed[d.id]){ keep.push(d); return; }
+    if (!d.pushedAt || d.pushedAt > (main.at || 0)){ keep.push(d); return; }   // it never saw this
+    if ((d.openedAt || 0) > (main.at || 0)){ keep.push(d); return; }           // reopened here since
+    dropped.push(d);
+  });
+  return { list: keep, dropped: dropped };
+}
 function mergeDocLists(local, remote){
   const out = [], seen = {};
   (local||[]).forEach(d=>{ if (d && d.id){ seen[d.id] = out.length; out.push(d); } else if (d) out.push(d); });
@@ -2071,6 +2127,16 @@ function hashOf(str){
   return str.length + ":" + h.toString(36);
 }
 const SYNC_PATH = "atlas-state.json";
+const BUILD = "2026-08-19f";
+// a stable name for this browser, so a device can recognise its own writes
+const DEVICE_ID = (function(){
+  let id = store.get("device_id");
+  if (!id){ id = uid(); store.set("device_id", id); }
+  return id;
+})();
+// everything the last sync pass saw, for the details panel
+let syncInfo = { build: BUILD, device: DEVICE_ID, role: "-", lastPull: 0, lastPush: 0,
+                 remoteDocs: 0, localDocs: 0, main: null, note: "no sync yet", roleNote: "" };
 function syncCfg(){
   return { repo: ($("syncRepo").value||"").trim().replace(/^https?:\/\/github\.com\//,"").replace(/\/+$/,""),
            token: ($("syncToken").value||"").trim() };
@@ -2084,7 +2150,27 @@ function setSyncDot(msg, kind){
   el.textContent = (kind === "bad" ? "⚠ " : kind === "busy" ? "⟳ " : "● ") + msg.replace(/^Sync(ed)?:?\s*/i, "");
   el.style.color = kind === "bad" ? "#b3261e" : kind === "busy" ? "#9a9a9a" : "#2e7d32";
 }
+function renderSyncDiag(){
+  const el = $("syncDiagBody");
+  if (!el) return;
+  const t = (v)=> v ? new Date(v).toLocaleString() : "never";
+  const m = syncInfo.main;
+  el.innerHTML =
+      "<strong>Build " + esc(BUILD) + "</strong> &mdash; both devices must show the same one."
+    + "<br>This device: " + esc(String(DEVICE_ID).slice(0, 8))
+    + " · " + (isPrimary() ? "<strong>main device</strong>" : "not the main device")
+    + "<br>Last pull: " + esc(t(syncInfo.lastPull))
+    + "<br>Last push: " + esc(t(syncInfo.lastPush))
+    + "<br>Tabs here: " + docs.length + " · in the synced file: " + syncInfo.remoteDocs
+    + "<br>Main device's list: " + (m
+        ? m.ids.length + " tabs, published " + esc(t(m.at))
+          + (m.deviceId === DEVICE_ID ? " (by this device)" : " (by " + esc(String(m.deviceId).slice(0,8)) + ")")
+        : "none yet — tick the box above on your main device and press Sync now")
+    + "<br>Last pass: " + esc(syncInfo.note)
+    + (syncInfo.roleNote ? "<br><strong>" + esc(syncInfo.roleNote) + "</strong>" : "");
+}
 function setSync(msg, kind){
+  renderSyncDiag();
   setSyncDot(msg, kind);
   const el = $("syncStatus");
   if (!msg){ el.style.display = "none"; return; }
@@ -2137,6 +2223,7 @@ function syncError(e){
   return "Sync failed: " + e.message;
 }
 let syncing = false, pushTimer = null, lastPushed = null, lastEtag = null, lastSha = null;
+let remoteMain = null;                           // the main device's published open list
 async function syncNow(opts){
   const quiet = opts && opts.quiet;
   if (!syncOn()){ if (!quiet) setSync("Add a repo and a token above first.", "bad"); return false; }
@@ -2162,56 +2249,67 @@ async function syncNow(opts){
       try { theirs = JSON.parse(await textFromBytes(bytes)); } catch(e){}
       if (!theirs || !Array.isArray(theirs.docs))
         throw new Error("the synced file could not be read - nothing was overwritten");
+      syncInfo.lastPull = now();
+      syncInfo.main = theirs.main || null;
       const activeId = doc && doc.id;
       const openNow = {}, before = docs.slice();
       docs.forEach(d=>{ if (d && d.id) openNow[d.id] = true; });
-      // Everything this device has closed is a close by this device. If it is the
-      // main one, those closes are final - including the ones made before the
-      // "main device" box existed, which were stored as bare timestamps and would
-      // otherwise never catch up with the phone.
-      if (isPrimary()){
-        Object.keys(closedDocs).forEach(k=>{
-          const t = closedDocs[k];
-          if (!tsPrimary(t)) closedDocs[k] = { at: tsAt(t) || now(), primary: true };
-        });
-      }
       closedDocs = pruneClosed(mergeClosed(closedDocs, theirs.closed), 90);
-      // On the main device, what is open here IS the list. A document the other
-      // device holds that this one does not is something this one closed - it
-      // cannot have come from anywhere else, since new documents are only ever
-      // created by opening them on some device, and this is the main one. So it
-      // is stamped closed rather than re-adopted. Without this, a close whose
-      // tombstone was lost (every close made before the main-device box existed)
-      // resurrects on the next pull and can never be got rid of.
-      // The one exception: a document explicitly opened on another device more
-      // recently than this device last synced - that is a deliberate reopen.
-      let theirDocs = theirs.docs.map(normaliseHl);
-      // never on an empty device: a main device with nothing open has nothing to
-      // assert, and a fresh install or a cleared browser would otherwise close
-      // every document on every other device in one pull
-      if (isPrimary() && docs.length){
-        const lastSync = Number(store.get("sync_at")) || 0;
-        theirDocs = theirDocs.filter(r=>{
-          if (!r || !r.id || openNow[r.id]) return true;                 // open here: merge it
-          if ((r.openedAt || 0) > lastSync) return true;                 // reopened elsewhere since: take it
-          closedDocs[r.id] = { at: now(), primary: true };               // otherwise: it was closed here
-          backupDoc(r, "closed on your main device");                    // and a copy is kept regardless
-          return false;
+      remoteMain = theirs.main || null;
+      claimRole(remoteMain);
+      refreshPrimaryBox();
+      const theirDocs = theirs.docs.map(normaliseHl);
+
+      // 1. merge content: every document from both sides, newest wins page by page
+      let list = mergeDocLists(docs, theirDocs);
+      // 2. this device's own closes still apply to it
+      list = applyClosed(list, closedDocs, openNow);
+      // 3. the main device's open list is authoritative for everyone else...
+      let closedByMain = [];
+      if (!isPrimary()){
+        const rec = reconcileToMain(list, remoteMain);
+        list = rec.list; closedByMain = rec.dropped;
+      } else if (docs.length){
+        // ...and on the main device itself, what is open here IS that list. A
+        // document arriving from elsewhere that this device does not have was
+        // closed here, so it must not be re-adopted - otherwise the list this
+        // device is about to publish would contain the very tabs it closed.
+        // Anything opened on another device since the last publish is genuinely
+        // new and is taken.
+        const since = Number(store.get("main_at")) || Number(store.get("sync_at")) || 0;
+        const keep = [];
+        list.forEach(d=>{
+          if (!d || !d.id || openNow[d.id] || (d.openedAt || 0) > since){ keep.push(d); return; }
+          closedByMain.push(d);
         });
+        list = keep;
       }
-      docs = applyClosed(mergeDocLists(docs, theirDocs), closedDocs, openNow);
+      closedByMain.forEach(d=>{
+        backupDoc(d, isPrimary() ? "closed here, dropped on sync" : "closed on your main device");
+        delete fileHandles[d.id];
+      });
+      docs = list;
+      // dropping tabs changes what this device should be publishing, so it must
+      // send the shorter list rather than sitting on it until something else
+      // happens to make it dirty
+      if (closedByMain.length) dirty = true;
       // belt and braces: if a merge ever drops something that was on screen, it is
       // copied to the recovery list first and said out loud rather than vanishing
       const dropped = before.filter(d=> d && d.id && !docs.some(x=> x.id === d.id));
-      // a close from the primary device is supposed to remove the tab here; a copy
-      // is still kept, so nothing is ever beyond reach, but it is not pushed back
-      const byPrimary = dropped.filter(d=> tsPrimary(closedDocs[d.id]));
-      const unexpected = dropped.filter(d=> !tsPrimary(closedDocs[d.id]));
-      byPrimary.forEach(d=>{ backupDoc(d, "closed on your main device"); delete fileHandles[d.id]; });
-      if (byPrimary.length) setSync(byPrimary.length + " tab(s) closed on your main device · " + new Date().toLocaleTimeString(), null);
+      const expected = {};
+      closedByMain.forEach(d=> expected[d.id] = true);
+      // anything removed that the main device did NOT ask for is a bug, not a
+      // decision: it goes back, with a copy kept and the reason said out loud
+      const unexpected = dropped.filter(d=> !expected[d.id] && !tsAt(closedDocs[d.id]));
       unexpected.forEach(d=>{ backupDoc(d, "removed by sync"); docs.push(d); });
       if (unexpected.length) setError("Sync tried to remove " + unexpected.length
         + " open document(s). They were kept, and copies are under “Recover a document”.");
+      syncInfo.remoteDocs = theirDocs.length;
+      syncInfo.note = closedByMain.length
+        ? closedByMain.length + " tab(s) closed to match your main device"
+        : (dropped.length ? dropped.length + " removed" : "merged");
+      if (closedByMain.length && !isPrimary())
+        flashSaved(closedByMain.length + " tab(s) closed on your main device");
       const at = docs.findIndex(d=> d.id === activeId);
       activeIdx = at >= 0 ? at : 0;
       doc = docs[activeIdx] || null;
@@ -2219,6 +2317,8 @@ async function syncNow(opts){
       if (!docs.length){ $("result").style.display = "none"; $("hero").style.display = "block"; }
     } else {
       sha = null;                                             // the file does not exist yet
+      claimRole(null);
+      refreshPrimaryBox();
     }
     // Nothing to send: the merge produced exactly what we last pushed. Skipping here
     // is what stops a commit being written every time the page is opened, whichever
@@ -2237,7 +2337,17 @@ async function syncNow(opts){
       }
       return true;
     }
-    const payload = JSON.stringify({ v:2, active:activeIdx, docs:docs, closed:closedDocs, at:now() });
+    // Proof that a document has been offered to the others. A tab the main device
+    // has never had in front of it cannot have been closed by it; one that has
+    // been in the file since before its last publish, and is absent from that
+    // publish, has been.
+    const stampedAt = now();
+    docs.forEach(d=>{ if (d) d.pushedAt = stampedAt; });
+    const mainBlock = (isPrimary() && docs.length)
+      ? { deviceId: DEVICE_ID, at: now(), ids: docs.map(d=> d.id).filter(Boolean) }
+      : remoteMain;                              // not the main device: pass it through untouched
+    const payload = JSON.stringify({ v:3, active:activeIdx, docs:docs, closed:closedDocs,
+                                     main:mainBlock, at:now(), by:DEVICE_ID, build:BUILD });
     const bytes = CAN_GZIP ? await gzipBytes(payload) : new TextEncoder().encode(payload);
     const put = await ghFetch("PUT", {
       message: "atlas: " + docs.length + " document(s) " + new Date().toISOString(),
@@ -2245,6 +2355,11 @@ async function syncNow(opts){
       sha: sha || undefined
     });
     lastPushed = hashOf(stateJson());
+    syncInfo.lastPush = now();
+    syncInfo.main = mainBlock;
+    // the moment this device published its list is the cut-off for judging what
+    // arrived later as genuinely new rather than something closed here
+    if (mainBlock && mainBlock.deviceId === DEVICE_ID) store.set("main_at", String(mainBlock.at));
     lastEtag = null;                       // our own write invalidates it
     if (put && put.content) lastSha = put.content.sha;
     dirty = false;
