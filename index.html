@@ -1970,8 +1970,11 @@ function mergeClosed(a, b){
     const x = out[k], y = b[k];
     if (!x) { out[k] = y; return; }
     const xa = tsAt(x), ya = tsAt(y);
-    // newest wins; at a tie the primary's stamp wins
-    if (ya > xa || (ya === xa && tsPrimary(y) && !tsPrimary(x))) out[k] = y;
+    const xp = tsPrimary(x), yp = tsPrimary(y);
+    // a main-device close outranks any other; between equals, newest wins
+    if (yp && !xp) out[k] = y;
+    else if (xp && !yp) { /* keep x */ }
+    else if (ya > xa) out[k] = y;
   });
   return out;
 }
@@ -2162,8 +2165,41 @@ async function syncNow(opts){
       const activeId = doc && doc.id;
       const openNow = {}, before = docs.slice();
       docs.forEach(d=>{ if (d && d.id) openNow[d.id] = true; });
+      // Everything this device has closed is a close by this device. If it is the
+      // main one, those closes are final - including the ones made before the
+      // "main device" box existed, which were stored as bare timestamps and would
+      // otherwise never catch up with the phone.
+      if (isPrimary()){
+        Object.keys(closedDocs).forEach(k=>{
+          const t = closedDocs[k];
+          if (!tsPrimary(t)) closedDocs[k] = { at: tsAt(t) || now(), primary: true };
+        });
+      }
       closedDocs = pruneClosed(mergeClosed(closedDocs, theirs.closed), 90);
-      docs = applyClosed(mergeDocLists(docs, theirs.docs.map(normaliseHl)), closedDocs, openNow);
+      // On the main device, what is open here IS the list. A document the other
+      // device holds that this one does not is something this one closed - it
+      // cannot have come from anywhere else, since new documents are only ever
+      // created by opening them on some device, and this is the main one. So it
+      // is stamped closed rather than re-adopted. Without this, a close whose
+      // tombstone was lost (every close made before the main-device box existed)
+      // resurrects on the next pull and can never be got rid of.
+      // The one exception: a document explicitly opened on another device more
+      // recently than this device last synced - that is a deliberate reopen.
+      let theirDocs = theirs.docs.map(normaliseHl);
+      // never on an empty device: a main device with nothing open has nothing to
+      // assert, and a fresh install or a cleared browser would otherwise close
+      // every document on every other device in one pull
+      if (isPrimary() && docs.length){
+        const lastSync = Number(store.get("sync_at")) || 0;
+        theirDocs = theirDocs.filter(r=>{
+          if (!r || !r.id || openNow[r.id]) return true;                 // open here: merge it
+          if ((r.openedAt || 0) > lastSync) return true;                 // reopened elsewhere since: take it
+          closedDocs[r.id] = { at: now(), primary: true };               // otherwise: it was closed here
+          backupDoc(r, "closed on your main device");                    // and a copy is kept regardless
+          return false;
+        });
+      }
+      docs = applyClosed(mergeDocLists(docs, theirDocs), closedDocs, openNow);
       // belt and braces: if a merge ever drops something that was on screen, it is
       // copied to the recovery list first and said out loud rather than vanishing
       const dropped = before.filter(d=> d && d.id && !docs.some(x=> x.id === d.id));
