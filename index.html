@@ -442,6 +442,10 @@
           <input type="password" id="syncToken" placeholder="github_pat_…" autocomplete="off">
         </div>
       </div>
+      <label style="display:flex;align-items:center;gap:8px;margin-top:10px;text-transform:none;letter-spacing:0;font-size:13px;color:#333;cursor:pointer;">
+        <input type="checkbox" id="syncPrimary" style="width:auto;margin:0;">
+        This is my main device &mdash; when I close a tab here, close it on my other devices too
+      </label>
       <div class="row"><button class="btn-outline" id="syncNowBtn">Sync now</button></div>
       <div class="syncstatus" id="syncStatus" style="display:none;"></div>
       <p class="hint">An <strong>empty private repo</strong> plus a fine-grained token with
@@ -718,6 +722,12 @@ $("settingsToggle").addEventListener("click", ()=>{
 $("syncRepo").addEventListener("change", ()=>{ store.set("sync_repo", $("syncRepo").value.trim()); });
 $("syncToken").addEventListener("change", ()=>{ store.set("sync_token", $("syncToken").value.trim()); });
 $("syncNowBtn").addEventListener("click", ()=> syncNow());
+$("syncPrimary").addEventListener("change", ()=>{
+  store.set("sync_primary", $("syncPrimary").checked ? "1" : "0");
+  dirty = true; schedulePush();                      // push so the other devices learn it
+});
+$("syncPrimary").checked = store.get("sync_primary") === "1";
+function isPrimary(){ return store.get("sync_primary") === "1"; }
 loadSettings();
 $("syncRepo").value = store.get("sync_repo") || "";
 $("syncToken").value = store.get("sync_token") || "";
@@ -1267,6 +1277,7 @@ function addDoc(d){
   // tombstone for it dies here. Without this, a close recorded earlier - on this
   // device or another - silently deleted the document again on the next sync.
   if (d && d.id && closedDocs[d.id]) delete closedDocs[d.id];
+  if (d) d.openedAt = now();          // an explicit reopen; the one thing that beats a primary close
   // the same document opened twice would sync as two copies of one id, so the
   // incoming copy is merged into the tab already holding it
   const at = d && d.id ? docs.findIndex(x=> x.id === d.id) : -1;
@@ -1293,7 +1304,7 @@ function closeDoc(i){
       + (syncOn() ? "\n\nSync is on, so it closes on your other devices too." : "")
       + "\n\nA copy is kept under “Recover a document”, so this can be undone.")) return;
   backupDoc(gone, "closed");                           // never lose it on the way out
-  if (gone.id){ closedDocs[gone.id] = now(); delete fileHandles[gone.id]; }
+  if (gone.id){ closedDocs[gone.id] = { at: now(), primary: isPrimary() }; delete fileHandles[gone.id]; }
   docs.splice(i, 1);
   if (!docs.length){
     doc = null; activeIdx = 0;
@@ -1495,6 +1506,7 @@ async function restoreFromState(list, label){
       d.title = (d.title || d.topic || "Untitled") + " (restored)";
     }
     delete closedDocs[d.id];
+    d.openedAt = now();                   // a restore is an explicit reopen
     docs.push(d);
     added++;
   }
@@ -1954,30 +1966,52 @@ function mergeOneDoc(l, r){
 // only if it was closed *after* its last edit, so work done elsewhere still wins.
 function mergeClosed(a, b){
   const out = Object.assign({}, a || {});
-  Object.keys(b || {}).forEach(k=>{ if (!out[k] || b[k] > out[k]) out[k] = b[k]; });
+  Object.keys(b || {}).forEach(k=>{
+    const x = out[k], y = b[k];
+    if (!x) { out[k] = y; return; }
+    const xa = tsAt(x), ya = tsAt(y);
+    // newest wins; at a tie the primary's stamp wins
+    if (ya > xa || (ya === xa && tsPrimary(y) && !tsPrimary(x))) out[k] = y;
+  });
   return out;
 }
 // `open` holds every document on screen in this browser right now. A tombstone can
 // stop a closed document coming BACK, but it must never take away something you are
 // looking at: a stale close - from this device or another - once deleted a file that
 // had just been opened, mid-session, while it was being worked on.
+// a tombstone is either a bare timestamp (older files) or { at, primary }
+function tsAt(t){ return t == null ? 0 : (typeof t === "number" ? t : (Number(t.at) || 0)); }   // never |0: it truncates a ms timestamp
+function tsPrimary(t){ return !!(t && typeof t === "object" && t.primary); }
 function applyClosed(list, closed, open){
   const keep = [];
   (list||[]).forEach(d=>{
-    const ts = closed[d.id];
-    if (open && open[d.id]){                         // open here: it is alive, full stop
-      if (ts) delete closed[d.id];                   // and tell the other devices so
+    const tomb = closed[d.id];
+    const ts = tsAt(tomb);
+    if (open && open[d.id]){
+      // Open on this device. A close from the PRIMARY device is final - that is
+      // the whole point of having one - so it closes here too, work and all.
+      // A close from anywhere else must not take away what you are looking at.
+      if (ts && tsPrimary(tomb) && !isPrimary() && (d.openedAt || 0) <= ts){ return; }
+      if (ts) delete closed[d.id];                   // not primary: the tab lives, tell the others
       keep.push(d); return;
     }
-    if (ts && (d.updatedAt || 0) <= ts) return;      // closed, and untouched since
-    if (ts) delete closed[d.id];                     // edited after closing: it lives on
+    // Not open here. A PRIMARY close is final unless someone explicitly reopened
+    // the document afterwards (openedAt newer than the close). Editing it is not
+    // reopening - that is exactly the case that used to resurrect closed tabs.
+    // A non-primary close yields to any later edit, as before.
+    if (ts && tsPrimary(tomb)){
+      if ((d.openedAt || 0) > ts){ delete closed[d.id]; keep.push(d); }
+      return;
+    }
+    if (ts && (d.updatedAt || 0) <= ts) return;
+    if (ts) delete closed[d.id];
     keep.push(d);
   });
   return keep;
 }
 function pruneClosed(closed, days){
   const cutoff = now() - (days || 90) * 86400000;
-  Object.keys(closed).forEach(k=>{ if (closed[k] < cutoff) delete closed[k]; });
+  Object.keys(closed).forEach(k=>{ if (tsAt(closed[k]) < cutoff) delete closed[k]; });
   return closed;
 }
 function mergeDocLists(local, remote){
@@ -2096,7 +2130,7 @@ function syncError(e){
   if (e.status === 401) return "Sync: token rejected - check it has not expired.";
   if (e.status === 404) return "Sync: repo not found, or the token cannot see it.";
   if (e.status === 403) return "Sync: access refused - the token needs Contents read and write.";
-  if (e.status === 409 || e.status === 422) return "Sync: the file changed elsewhere - press Sync now again.";
+  if (e.status === 409 || e.status === 422) return "Sync: both devices wrote at once twice in a row - it will settle on the next pass.";
   return "Sync failed: " + e.message;
 }
 let syncing = false, pushTimer = null, lastPushed = null, lastEtag = null, lastSha = null;
@@ -2133,8 +2167,14 @@ async function syncNow(opts){
       // belt and braces: if a merge ever drops something that was on screen, it is
       // copied to the recovery list first and said out loud rather than vanishing
       const dropped = before.filter(d=> d && d.id && !docs.some(x=> x.id === d.id));
-      dropped.forEach(d=>{ backupDoc(d, "removed by sync"); docs.push(d); });
-      if (dropped.length) setError("Sync tried to remove " + dropped.length
+      // a close from the primary device is supposed to remove the tab here; a copy
+      // is still kept, so nothing is ever beyond reach, but it is not pushed back
+      const byPrimary = dropped.filter(d=> tsPrimary(closedDocs[d.id]));
+      const unexpected = dropped.filter(d=> !tsPrimary(closedDocs[d.id]));
+      byPrimary.forEach(d=>{ backupDoc(d, "closed on your main device"); delete fileHandles[d.id]; });
+      if (byPrimary.length) setSync(byPrimary.length + " tab(s) closed on your main device · " + new Date().toLocaleTimeString(), null);
+      unexpected.forEach(d=>{ backupDoc(d, "removed by sync"); docs.push(d); });
+      if (unexpected.length) setError("Sync tried to remove " + unexpected.length
         + " open document(s). They were kept, and copies are under “Recover a document”.");
       const at = docs.findIndex(d=> d.id === activeId);
       activeIdx = at >= 0 ? at : 0;
@@ -2185,6 +2225,13 @@ async function syncNow(opts){
       + (!idb && kb > 2000 ? " · nearing the browser storage budget" : ""), null);
     return true;
   } catch(e){
+    if ((e.status === 409 || e.status === 422) && !(opts && opts.retried)){
+      // the other device wrote first: read theirs, merge, write again
+      lastEtag = null; lastSha = null;
+      syncing = false;
+      await sleep(400 + Math.random() * 600);        // two devices colliding should not re-collide
+      return syncNow(Object.assign({}, opts || {}, { retried:true }));
+    }
     setSync(syncError(e), "bad");
     return false;
   } finally { syncing = false; }
@@ -3034,7 +3081,7 @@ $("clearBtn").addEventListener("click", ()=>{
       + " and delete every saved answer and highlight?"
       + (syncOn() ? "\n\nSync is on, so this removes them from your other devices too." : ""))) return;
   docs.forEach(d=> backupDoc(d, "cleared"));         // recoverable even from here
-  docs.forEach(d=>{ if (d && d.id) closedDocs[d.id] = now(); });
+  docs.forEach(d=>{ if (d && d.id) closedDocs[d.id] = { at: now(), primary: isPrimary() }; });
   docs = []; fileHandles = {}; doc = null; activeIdx = 0;
   saveDoc();
   renderTabs();
