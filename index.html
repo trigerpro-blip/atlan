@@ -91,6 +91,7 @@
   .b-nice { background:#fff; color:#8a8a8a; border:1px solid #d9d9d9; }
   .questions { font-size:15px; color:#9a9a9a; line-height:1.6; }
   .pbtns { display:flex; gap:8px; flex-wrap:wrap; margin-top:8px; }
+  .b-simple { background:#eef4ff; color:#3d5a99; border:1px solid #d8e3fb; margin-left:6px; }
   .writebtn { background:none; border:1px solid #d9d9d9; border-radius:999px; padding:6px 14px; font-size:13px; color:#555; }
   .writebtn:disabled { color:#bbb; }
   .qa { margin-top:10px; border:1px solid #ececec; border-radius:12px; padding:12px 14px; background:#fafafa; }
@@ -234,7 +235,6 @@
            min-width:26px; text-align:center; }
   .hltext { font-size:14px; line-height:1.6; color:#333; }
   .hlempty { font-size:13.5px; color:#9a9a9a; }
-
   /* ---------- print / save-as-PDF ---------- */
   @page { size: A4 portrait; margin: 14mm; }
   @media print {
@@ -627,11 +627,54 @@ if ($("syncRepo").value) $("syncSub").open = true;      // already set up: show 
 
 // ---------------- model call ----------------
 const sleep = (ms)=> new Promise(r=>setTimeout(r,ms));
+// Models miss the exact shape in a handful of predictable ways: a bare array, a
+// fenced block, a sentence of preamble, or - most often - a reply cut off mid-string
+// because the token budget ran out. All of those used to surface as the same blank
+// "No JSON in response", so each is handled, and an empty reply is reported as the
+// different problem it is.
 function parseJSONLoose(raw){
-  const cleaned = raw.replace(/```json|```/g,"").trim();
-  const s = cleaned.indexOf("{"), e = cleaned.lastIndexOf("}");
-  if (s === -1 || e === -1) throw new Error("No JSON in response");
-  return JSON.parse(cleaned.slice(s, e+1));
+  const cleaned = String(raw || "").replace(/```json|```/g, "").trim();
+  if (!cleaned) throw new Error("EMPTY");
+  const fail = (msg)=>{
+    // carry the start of what did come back: without it every shape problem looks
+    // identical from the outside, which is exactly how this stayed hidden
+    const e = new Error(msg + " — it began: “" + cleaned.slice(0, 90).replace(/\s+/g," ") + "”");
+    e.shape = true; throw e;
+  };
+  const ob = cleaned.indexOf("{"), cb = cleaned.lastIndexOf("}");
+  if (ob !== -1 && cb > ob){
+    try { return JSON.parse(cleaned.slice(ob, cb + 1)); } catch(e){ /* fall through to salvage */ }
+  }
+  const ab = cleaned.indexOf("["), ae = cleaned.lastIndexOf("]");
+  if (ab !== -1 && ae > ab){
+    try {
+      const arr = JSON.parse(cleaned.slice(ab, ae + 1));
+      if (Array.isArray(arr)) return { answers: arr };
+    } catch(e){ /* fall through to salvage */ }
+  }
+  // truncated: keep whichever complete strings did arrive rather than losing the lot
+  const salvaged = [];
+  const re = /"((?:[^"\\]|\\.)*)"\s*(?:,|\])/g;
+  const from = cleaned.indexOf("[");
+  let m;
+  if (from !== -1){
+    re.lastIndex = from;
+    while ((m = re.exec(cleaned)) !== null){
+      try { salvaged.push(JSON.parse('"' + m[1] + '"')); } catch(e){}
+    }
+  }
+  if (salvaged.length) return { answers: salvaged, truncated: true };
+  fail("The model did not reply in the requested format");
+}
+// "1. text" / "2) text", tolerating blank lines and wrapped lines
+function parseNumberedList(raw){
+  const out = [];
+  String(raw || "").split(/\r?\n/).forEach(line=>{
+    const m = /^\s*(\d+)\s*[.)]\s+(.*)$/.exec(line);
+    if (m) out.push(m[2].trim());
+    else if (out.length && line.trim()) out[out.length - 1] += " " + line.trim();
+  });
+  return out;
 }
 async function askOnce(prompt, opts){
   const key = $("apiKey").value.trim();
@@ -647,7 +690,15 @@ async function askOnce(prompt, opts){
     body = { contents: [{ parts: [{ text: prompt }] }],
              generationConfig: { maxOutputTokens: maxTokens, temperature: 0.6 } };
     if (opts && opts.json) body.generationConfig.responseMimeType = "application/json";
-    extract = (d)=> ((((d.candidates||[])[0]||{}).content||{}).parts||[]).map(p=>p.text||"").join("\n");
+    extract = (d)=>{
+      const cand = (d.candidates||[])[0] || {};
+      const text = ((cand.content||{}).parts||[]).map(p=>p.text||"").join("\n");
+      // Gemini counts its own thinking against maxOutputTokens, so a budget that is
+      // merely tight comes back as a candidate with no text at all rather than as an
+      // error. The reason is the only way to tell that apart from a refusal.
+      if (!text.trim() && cand.finishReason) throw new Error("EMPTY:" + cand.finishReason);
+      return text;
+    };
   } else {
     url = prov === "groq"
       ? "https://api.groq.com/openai/v1/chat/completions"
@@ -666,18 +717,23 @@ async function askOnce(prompt, opts){
   }
   const data = await res.json();
   const text = extract(data);
-  if (!text || !text.trim()) throw new Error("Empty response");
+  if (!text || !text.trim()) throw new Error("EMPTY");
   return text;
 }
 async function ask(prompt, opts, tries){
   tries = tries || 3; let lastErr;
+  let o = Object.assign({}, opts || {});
   for (let i=0;i<tries;i++){
     try {
-      const text = await askOnce(prompt, opts);
-      return (opts && opts.json) ? parseJSONLoose(text) : text;
+      const text = await askOnce(prompt, o);
+      return o.json ? parseJSONLoose(text) : text;
     } catch(e){
       lastErr = e;
       if (e.message === "NOKEY" || e.status === 400 || e.status === 401 || e.status === 403) throw e;
+      // came back empty or cut off: the next attempt gets more room rather than
+      // repeating the same request against the same ceiling
+      if ((e.message||"").indexOf("EMPTY") === 0 || e.shape)
+        o.maxTokens = Math.min(8000, Math.round((o.maxTokens || 4096) * 1.8));
       if (i < tries-1) await sleep(e.status === 429 ? 3000*(i+1) : 800*(i+1));
     }
   }
@@ -772,18 +828,58 @@ function quickPrompt(page, catName){
     + 'Questions:\n' + qList(page)
     + '\n\nRespond with ONLY a JSON object with one answer per question, in order:\n{ "answers": ["...", "..."] }';
 }
+// Simplifying works from the answers that are already there rather than asking the
+// question again. Re-answering would quietly produce different content; this keeps
+// every fact that was checked and changes only how it reads.
+function plainAnswersPrompt(page, catName){
+  const pairs = page.questions.map((q,k)=>
+    (k+1) + '. Q: ' + q + '\n   Current answer: ' + ((page.quick||[])[k] || "—")).join("\n");
+  return 'Below are answers about "' + doc.topic + '" (section "' + catName + '", page "'
+    + page.title + '") that a reader found too dense. Rewrite each one so it is easy to follow.\n\n'
+    + 'Rules:\n'
+    + '- Keep every fact, number, name and distinction. Do not drop anything and do not add anything new.\n'
+    + '- Plain words and short sentences. Explain any unavoidable jargon in a few words at first use.\n'
+    + '- Same length or shorter. No preamble, no restating the question, no hedging.\n\n'
+    + NO_TEX + '\n\n' + pairs
+    + '\n\nRespond with ONLY a JSON object holding the rewritten answers in order:\n{ "answers": ["...", "..."] }';
+}
+// Used only when the JSON attempt comes back unusable: same job, a shape that
+// cannot really be got wrong.
+function plainAnswersTextPrompt(page, catName){
+  return plainAnswersPrompt(page, catName)
+    .replace(/Respond with ONLY a JSON object[\s\S]*$/,
+      'Reply with one rewritten answer per question, numbered "1.", "2." and so on, in order. '
+      + 'Nothing else - no headings, no repeating the questions.');
+}
+function plainArticlePrompt(page, catName){
+  return 'Below is a reference page about "' + doc.topic + '" (section "' + catName
+    + '") that a reader found too dense. Rewrite it so it is easy to follow.\n\n'
+    + 'Rules:\n'
+    + '- Keep the same Markdown structure: the same #### headings, in the same order, and the key points section.\n'
+    + '- Keep every fact, number and name. Add nothing new.\n'
+    + '- Plain words, short sentences, jargon explained in a few words at first use.\n'
+    + '- Same length or shorter. Start directly with the text, no preamble.\n\n'
+    + NO_TEX + '\n\n--- page ---\n' + page.article;
+}
 function deepPrompt(page, catName){
   const v = VOICE[doc.style] || VOICE.exam;
   return 'You are writing one page of a reference on "' + doc.topic + '" for ' + v.who + '.'
-    + ' Section: "' + catName + '".\n\nPage title: "' + page.title + '"\nThe page must clearly answer:\n'
-    + qList(page)
-    + '\n\nWrite in clean Markdown:\n'
+    + ' Section: "' + catName + '".\n\nPage title: "' + page.title + '"\n\n'
+    + 'The reader should come away understanding at least this much:\n' + qList(page)
+    + '\n\nTreat that list as the floor, not the plan. Do not answer the questions one by one and do not '
+    + 'turn them into headings - they are already answered briefly elsewhere, so repeating that structure '
+    + 'here adds nothing. Explain the subject properly in whatever order the material itself suggests: '
+    + 'build from the mechanism or principle that makes the rest follow, group what belongs together, and '
+    + 'add the context, comparisons and caveats a reader needs even though nobody asked for them. Cover the '
+    + 'ground above somewhere in the page.\n\n'
+    + 'Write in clean Markdown:\n'
     + '- A short intro (2-3 sentences) placing this page in context: what it is and what problem it solves here.\n'
-    + '- One #### heading per question.\n'
-    + '- Under each: ' + v.deep + '\n'
+    + '- #### headings of your own choosing, named for the ideas they cover. Use as many or as few as the '
+    + 'subject warrants - one well-developed section is better than five thin ones.\n'
+    + '- Throughout: ' + v.deep + '\n'
     + '- Define any jargon at first use, in-line, in a few words. Never pad.\n'
     + '- Finish with a "#### Key points" section: 3-4 tight bullets carrying the facts worth memorising, each containing a specific.\n\n'
-    + 'Around 400-550 words. Accurate and specific throughout - no vague filler, no hedging. No preamble, start directly with the intro.\n\n'
+    + 'Around 450-600 words. Accurate and specific throughout - no vague filler, no hedging. No preamble, start directly with the intro.\n\n'
     + NO_TEX;
 }
 
@@ -2017,7 +2113,9 @@ function renderCategory(i){
     html += '<div class="page' + (p.quick ? ' has-answers' : '') + '" id="qn-' + i + '-' + j + '">'
          +  '<div class="page-head"><span class="page-title">' + numHtml
          +  esc(p.title) + '</span>'
-         +  '<span class="badge ' + badgeClass(p.priority) + '">' + esc(p.priority) + '</span></div>';
+         +  '<span class="badge ' + badgeClass(p.priority) + '">' + esc(p.priority) + '</span>'
+         +  (p.plainOf ? '<span class="badge b-simple">Simplified</span>' : '')
+         +  '</div>';
     // the questions line is dropped once the answers sit right below it, since the
     // Q&A block repeats every question anyway
     if (!showInline){
@@ -2043,6 +2141,11 @@ function renderCategory(i){
          +  (p.quick ? '↻ Redo quick answers' : '⚡ Quick answers') + '</button>'
          +  '<button class="writebtn" onclick="getDeep(' + i + ',' + j + ')"' + (p.articleLoading?' disabled':'') + '>'
          +  (p.article ? '↻ Redo deeper look' : '🔍 Deeper look') + '</button>'
+         +  (p.quick
+              ? '<button class="writebtn" onclick="' + (p.plainOf ? 'unsimplifyPage' : 'simplifyPage')
+                + '(' + i + ',' + j + ')"' + (p.quickLoading||p.articleLoading?' disabled':'') + '>'
+                + (p.plainOf ? '↩ Undo simplify' : '🌱 Simplify this page') + '</button>'
+              : '')
          +  '</div></div>';
   });
   sec.innerHTML = html;
@@ -2280,6 +2383,14 @@ $("hlSummary").addEventListener("toggle", ()=>{
 
 // ---------------- answering ----------------
 function friendlyErr(e){
+  if (e.message === "EMPTY" || (e.message||"").indexOf("EMPTY:") === 0){
+    const why = (e.message||"").split(":")[1] || "";
+    return "The model replied with nothing at all"
+      + (why === "MAX_TOKENS" ? " because it used its whole length budget thinking. Try a smaller page, or a model with more headroom."
+       : why === "SAFETY" ? " - its safety filter blocked this one."
+       : why ? " (" + why.toLowerCase() + ")."
+       : ". That is usually the length limit being spent before it starts writing.");
+  }
   if (e.message === "NOKEY") return "Add your API key in Settings first.";
   if (e.status === 429) return "Rate limited - wait a moment, then retry this page.";
   if (e.status === 400 || e.status === 401 || e.status === 403) return "Key or model problem: " + e.message;
@@ -2297,6 +2408,7 @@ window.getQuick = async function(i, j){
   const c = doc.categories[i], p = c.pages[j];
   if (p.quickLoading) return;
   if (p.quick) dropHighlights(i, j, ["a"]);
+  delete p.plainOf;                  // fresh answers: there is no earlier wording to go back to
   p.quickLoading = true; p.error = null; renderCategory(i);
   try {
     const res = await ask(quickPrompt(p, c.name), { json:true, maxTokens:1400 });
@@ -2310,10 +2422,77 @@ window.getQuick = async function(i, j){
   p.quickLoading = false; stampPage(i, j);
   renderCategory(i); renderAnswerKey(); updateMeta(); saveDoc();
 };
+// The original wording is kept on the page itself, with the highlights that were on
+// it, so undoing costs nothing and needs no second call to the model. Rewriting text
+// under a highlight would leave it pointing at the wrong words, so the highlights
+// come off with the text they belonged to and go back on with it.
+function takeHighlights(i, j, kinds){
+  const saved = {};
+  Object.keys(doc.hl || {}).forEach(k=>{
+    kinds.forEach(kind=>{ if (k.indexOf(hk(i,j,kind)) === 0) saved[k] = doc.hl[k]; });
+  });
+  return saved;
+}
+window.simplifyPage = async function(i, j){
+  const c = doc.categories[i], p = c.pages[j];
+  if (p.quickLoading || p.articleLoading) return;
+  if (!p.quick){ setError("Answer this page first - Simplify rewrites the answers you already have."); return; }
+  if (p.plainOf) return;
+  const kinds = p.article ? ["a","art"] : ["a"];
+  const backup = { quick: p.quick.slice(), article: p.article || null, hl: takeHighlights(i, j, kinds) };
+  p.quickLoading = true; if (p.article) p.articleLoading = true;
+  p.error = null; renderCategory(i);
+  try {
+    // it has to reproduce every answer on the page, so the ceiling is sized to the
+    // text in hand rather than left at the fixed one a single fresh answer needs
+    const chars = backup.quick.join(" ").length + p.questions.join(" ").length;
+    const budget = Math.min(6000, Math.max(1600, Math.round(chars / 2) + 900));
+    // A numbered list is the natural shape for "rewrite each of these", and unlike
+    // JSON it cannot arrive malformed - a truncated list is still a usable list.
+    // JSON is the backup, not the default.
+    let a = parseNumberedList(await ask(plainAnswersTextPrompt(p, c.name), { maxTokens:budget }));
+    if (a.length < p.questions.length){
+      const res = await ask(plainAnswersPrompt(p, c.name), { json:true, maxTokens:budget });
+      const viaJson = res.answers || [];
+      if (viaJson.length > a.length) a = viaJson;
+    }
+    if (!a.length) throw new Error("The model did not return any rewritten answers.");
+    // a short reply means some answers came back and some did not: the originals
+    // stay rather than being replaced by a dash
+    const plain = p.questions.map((q,k)=> deTeX(a[k] || backup.quick[k] || "—"));
+    let article = null;
+    if (p.article) article = deTeX(await ask(plainArticlePrompt(p, c.name), { maxTokens:2400 }));
+    // nothing is touched until both calls have come back, so a failure half way
+    // through leaves the page exactly as it was
+    p.quick = plain;
+    if (article) p.article = article;
+    dropHighlights(i, j, kinds);
+    p.plainOf = backup;
+    setError(null);
+  } catch(e){
+    p.error = friendlyErr(e);
+    if (e.message === "NOKEY") $("settingsPanel").style.display = "block";
+  }
+  p.quickLoading = false; p.articleLoading = false; stampPage(i, j);
+  renderCategory(i); renderAnswerKey(); updateMeta(); saveDoc();
+};
+window.unsimplifyPage = function(i, j){
+  const p = doc.categories[i].pages[j];
+  const back = p.plainOf;
+  if (!back) return;
+  dropHighlights(i, j, ["a","art"]);
+  p.quick = back.quick;
+  if (back.article) p.article = back.article;
+  Object.keys(back.hl || {}).forEach(k=> setRanges(k, back.hl[k]));
+  delete p.plainOf;
+  stampPage(i, j);
+  renderCategory(i); renderAnswerKey(); updateMeta(); saveDoc();
+};
 window.getDeep = async function(i, j){
   const c = doc.categories[i], p = c.pages[j];
   if (p.articleLoading) return;
   if (p.article) dropHighlights(i, j, ["art"]);
+  if (p.plainOf) p.plainOf.article = null;   // the deeper look is being replaced outright
   p.articleLoading = true; p.error = null; renderCategory(i);
   try {
     p.article = deTeX(await ask(deepPrompt(p, c.name), { maxTokens:2400 }));
