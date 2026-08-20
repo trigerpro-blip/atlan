@@ -3,6 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
+<meta name="atlas-build" content="">
 <title>Atlas Answers</title>
 <style>
   @import url('https://fonts.googleapis.com/css2?family=Source+Serif+4:opsz,wght@8..60,400;8..60,600&display=swap');
@@ -151,6 +152,9 @@
                  text-align:center; padding:0; background:#3a3a3a; color:#fff; }
   #hlModePill .stop { background:#fff; color:#111; border:none; border-radius:999px;
                       padding:4px 10px; font-size:12px; font-weight:600; }
+  #hlModePill .undo { display:none; background:none; color:#fff; border:1px solid rgba(255,255,255,.45);
+                      border-radius:999px; padding:4px 10px; font-size:12px; }
+  #hlModePill .undo.on { display:inline-block; }
   #hlModePill .pick { display:inline-flex; align-items:center; gap:3px; background:#2a2a2a;
                       border:1px solid rgba(255,255,255,.3); border-radius:999px; padding:3px 6px 3px 4px; }
   #hlModePill .pick .chev { font-size:9px; color:#bbb; }
@@ -292,6 +296,7 @@
            border:1px solid #ececec; border-radius:5px; padding:1px 5px; margin-top:3px;
            min-width:26px; text-align:center; }
   .hltext { font-size:14px; line-height:1.6; color:#333; }
+  .hlctx { color:#b0b0b0; }
   .hlempty { font-size:13.5px; color:#9a9a9a; }
   /* ---------- print / save-as-PDF ---------- */
   @page { size: A4 portrait; margin: 14mm; }
@@ -495,6 +500,21 @@
         <button class="btn-outline" id="historyBtn">Find a lost page</button>
         <button class="btn-outline" id="importSyncBtn">Restore from a sync file</button>
       </div>
+      <div class="row" style="margin-top:6px;">
+        <button class="btn-outline" id="upgradeBtn">Update saved pages to this version</button>
+        <button class="btn-outline" id="upgradeNowBtn">Update in place (resets file dates)</button>
+      </div>
+      <input type="file" id="upgradeInput" accept=".html,.htm" multiple style="display:none;">
+      <p class="hint">A saved page carries the whole app inside it, so an old one keeps its old behaviour
+      forever. Both buttons rebuild each page around its own answers and highlights, and copy every page
+      into the list above first.<br><br>
+      <strong>Update saved pages</strong> writes the rebuilt files into a folder called
+      <em>_atlas-updated</em> alongside yours, with a small <em>apply-update.command</em> next to it.
+      Double-click that file and it copies each one over the original <em>in place</em>, which is the only
+      way to keep the Finder creation date &mdash; a browser can only replace a file, never overwrite it,
+      and replacing it makes a new file with today's date.<br><br>
+      <strong>Update in place</strong> skips the extra step but the creation date becomes today. Either way
+      the date the work was started is now kept inside the document itself, where nothing can reset it.</p>
       <div class="syncstatus" id="recoverStatus" style="display:none;"></div>
       <div id="historyList"></div>
       <input type="file" id="syncFileInput" accept=".json,.gz,.gzip,application/json,application/gzip" style="display:none;">
@@ -569,6 +589,7 @@
   <div id="hlModePill">
     <button type="button" class="pick" title="Change the auto-highlight style"><mark class="mark-sample hl"></mark><span class="chev">&#9652;</span></button>
     <span class="lbl">Auto-highlight</span>
+    <button type="button" class="undo" id="hlUndoBtn" title="Undo the last highlight (⌘Z / Ctrl+Z)">Undo</button>
     <button type="button" class="stop">Stop</button>
     <div class="pal">
       <div class="swatches">
@@ -623,6 +644,7 @@
     <div class="acts">
       <button class="txtbtn ulbtn" data-ul="1" title="Red underline - stacks on any colour">Underline</button>
       <button class="txtbtn" data-clear="1" title="Remove colour, underline and text colour">Clear</button>
+      <button class="txtbtn" data-undo="1" title="Undo the last highlight (⌘Z / Ctrl+Z)">↶</button>
       <button class="txtbtn" data-img="1" title="Google Images for the selected text">&#128269;</button>
       <button class="txtbtn modebtn" data-mode="1" title="Highlight mode: every selection is painted straight away in the last style used. Escape to stop."><span class="dot"></span>Auto</button>
     </div>
@@ -1675,6 +1697,192 @@ $("historyList").addEventListener("click", async (e)=>{
   renderHistoryList();
 });
 
+// ---- updating pages saved by an older version ----
+// A saved page is a snapshot of the app AND the work. Reopening one in the current
+// app is not enough: the file on disk still holds the old code, so opening it
+// tomorrow brings the old behaviour back. Rebuilding means rendering that page's
+// own document inside THIS app and writing the result over the original.
+function pageHtmlForDoc(d){
+  docs = [normaliseHl(d)]; activeIdx = 0; doc = docs[0];
+  render();
+  return pageHtml();
+}
+function restoreWorkspace(keep){
+  docs = keep.docs; activeIdx = keep.activeIdx; doc = keep.doc;
+  if (doc) render();
+  else { renderTabs(); $("result").style.display = "none"; $("hero").style.display = "block"; }
+}
+function buildOf(text){
+  const m = /<meta name="atlas-build" content="([^"]*)">/.exec(text || "");
+  return (m && m[1]) ? m[1] : "older";
+}
+// Rebuild one page's HTML from its own embedded document. Returns null if the file
+// is not one of ours, or already current.
+async function rebuildSavedPage(text, force, fileDate){
+  let d = docFromSavedHtml(text);
+  if (!d) return null;
+  if (!force && buildOf(text) === BUILD) return { skipped:true };
+  // the file is about to lose its dates, so the document takes a copy of when the
+  // work began: its own earliest stamp, or the file's date if that is older
+  d = ensureCreatedAt(d, fileDate || null);
+  await backupDoc(normaliseHl(JSON.parse(JSON.stringify(d))), "before updating the file");
+  return { html: pageHtmlForDoc(d), was: buildOf(text), title: d.title || d.topic || "Untitled" };
+}
+async function* walkDir(dir, path){
+  for await (const entry of dir.values()){
+    if (entry.kind === "file") yield { handle: entry, path: path + entry.name };
+    else if (entry.kind === "directory") yield* walkDir(entry, path + entry.name + "/");
+  }
+}
+// Escape a path for single-quoting inside a shell script.
+function shq(str){ return "'" + String(str).replace(/'/g, "'\\''") + "'"; }
+// Write into a nested path under a directory handle, creating folders as needed.
+async function writeInto(root, relPath, text){
+  const parts = relPath.split("/");
+  const name = parts.pop();
+  let dir = root;
+  for (const seg of parts) dir = await dir.getDirectoryHandle(seg, { create:true });
+  const fh = await dir.getFileHandle(name, { create:true });
+  const w = await fh.createWritable();
+  await w.write(text);
+  await w.close();
+}
+// Stage rebuilt pages beside the originals and leave one script that puts them in
+// place. `cat new > old` truncates the original file rather than replacing it, so
+// the inode - and with it the creation date - survives.
+$("upgradeBtn").addEventListener("click", async ()=>{
+  if (VIEWER) return;
+  if (!window.showDirectoryPicker){ $("upgradeInput").click(); return; }
+  let dir;
+  try { dir = await window.showDirectoryPicker({ mode:"readwrite" }); }
+  catch(e){ return; }
+  try {
+    if (dir.requestPermission && await dir.requestPermission({ mode:"readwrite" }) !== "granted"){
+      setRecover("Write permission for that folder was declined.", "bad"); return;
+    }
+  } catch(e){}
+  const keep = { docs: docs, activeIdx: activeIdx, doc: doc };
+  const staged = [];
+  let seen = 0, skipped = 0, failed = 0;
+  setRecover("Looking through that folder…", "busy");
+  try {
+    for await (const item of walkDir(dir, "")){
+      if (!/\.html?$/i.test(item.path)) continue;
+      if (item.path.indexOf("_atlas-updated/") === 0) continue;      // our own staging
+      seen++;
+      setRecover("Checking " + seen + " file(s)… " + staged.length + " ready", "busy");
+      await sleep(0);
+      let file = null, text = "";
+      try { file = await item.handle.getFile(); text = await file.text(); } catch(e){ continue; }
+      if (text.indexOf('id="atlasdoc"') === -1) continue;
+      let out = null;
+      try { out = await rebuildSavedPage(text, false, file && file.lastModified); }
+      catch(e){ failed++; continue; }
+      if (!out) continue;
+      if (out.skipped){ skipped++; continue; }
+      try { await writeInto(dir, "_atlas-updated/" + item.path, out.html); staged.push(item.path); }
+      catch(e){ failed++; }
+    }
+  } finally {
+    restoreWorkspace(keep);
+    renderBackups();
+  }
+  if (!staged.length){
+    setRecover(skipped ? "Every saved page in there is already current."
+                       : "No saved pages found in that folder.", skipped ? null : "bad");
+    return;
+  }
+  const script = "#!/bin/bash\n"
+    + "# Puts the rebuilt pages in place, keeping each file's creation date.\n"
+    + "# `cat new > old` truncates the original rather than replacing it, so the\n"
+    + "# file - and its Finder \"Created\" date - stays the same file.\n"
+    + 'cd "$(dirname "$0")" || exit 1\n'
+    + 'if [ ! -d _atlas-updated ]; then echo "Nothing to apply."; exit 0; fi\n'
+    + staged.map(rel=>
+        "cat " + shq("_atlas-updated/" + rel) + " > " + shq(rel)
+        + " && echo " + shq("updated " + rel)).join("\n")
+    + "\nrm -rf _atlas-updated\n"
+    + 'echo ""\necho "Done - ' + staged.length + ' page(s) updated, dates kept."\n'
+    + 'read -n 1 -s -r -p "Press any key to close."\n';
+  try { await writeInto(dir, "apply-update.command", script); }
+  catch(e){ setRecover("The pages were prepared but the script could not be written: " + e.message, "bad"); return; }
+  setRecover(staged.length + " page(s) prepared" + (skipped ? " · " + skipped + " already current" : "")
+    + (failed ? " · " + failed + " failed" : "")
+    + " — now open that folder and double-click apply-update.command. "
+    + "If macOS refuses, right-click it and choose Open, or run: bash apply-update.command", null);
+});
+// the original one-click path, for when the date does not matter
+$("upgradeNowBtn").addEventListener("click", async ()=>{
+  if (VIEWER) return;
+  if (!window.showDirectoryPicker){ $("upgradeInput").click(); return; }
+  let dir;
+  try { dir = await window.showDirectoryPicker({ mode:"readwrite" }); }
+  catch(e){ return; }                                    // the picker was dismissed
+  try {
+    if (dir.requestPermission && await dir.requestPermission({ mode:"readwrite" }) !== "granted"){
+      setRecover("Write permission for that folder was declined.", "bad"); return;
+    }
+  } catch(e){}
+  const keep = { docs: docs, activeIdx: activeIdx, doc: doc };
+  let done = 0, skipped = 0, failed = 0, seen = 0;
+  setRecover("Looking through that folder…", "busy");
+  try {
+    for await (const item of walkDir(dir, "")){
+      if (!/\.html?$/i.test(item.path)) continue;
+      seen++;
+      setRecover("Checking " + seen + " file(s)… " + done + " updated", "busy");
+      await sleep(0);
+      let text = "";
+      try { text = await (await item.handle.getFile()).text(); } catch(e){ continue; }
+      if (text.indexOf('id="atlasdoc"') === -1) continue;
+      let out = null;
+      try { out = await rebuildSavedPage(text); }
+      catch(e){ failed++; continue; }
+      if (!out) continue;
+      if (out.skipped){ skipped++; continue; }
+      try {
+        const w = await item.handle.createWritable();     // truncates in place, same file
+        await w.write(out.html);
+        await w.close();
+        done++;
+      } catch(e){ failed++; }
+    }
+  } finally {
+    restoreWorkspace(keep);
+    renderBackups();
+  }
+  setRecover(done + " page(s) updated to " + BUILD
+    + (skipped ? " · " + skipped + " already current" : "")
+    + (failed ? " · " + failed + " could not be written" : "")
+    + (seen && !done && !skipped ? " · no saved pages found in there" : ""), failed ? "bad" : null);
+});
+// fallback for browsers that cannot write files: give back updated copies
+$("upgradeInput").addEventListener("change", async (e)=>{
+  const files = [].slice.call(e.target.files || []);
+  e.target.value = "";
+  if (!files.length) return;
+  const keep = { docs: docs, activeIdx: activeIdx, doc: doc };
+  let done = 0;
+  try {
+    for (const f of files){
+      let text = "";
+      try { text = await f.text(); } catch(err){ continue; }
+      if (text.indexOf('id="atlasdoc"') === -1) continue;
+      const out = await rebuildSavedPage(text, true);
+      if (!out || !out.html) continue;
+      const a = document.createElement("a");
+      a.href = URL.createObjectURL(new Blob([out.html], { type:"text/html" }));
+      a.download = f.name;                                 // same name: save over the original
+      document.body.appendChild(a); a.click(); a.remove();
+      setTimeout(()=> URL.revokeObjectURL(a.href), 4000);
+      done++;
+      await sleep(300);                                    // one download at a time
+    }
+  } finally { restoreWorkspace(keep); renderBackups(); }
+  setRecover(done ? done + " updated copy(ies) downloaded - save each over the original file."
+                  : "None of those were saved pages from here.", done ? null : "bad");
+});
+
 $("importSyncBtn").addEventListener("click", ()=> $("syncFileInput").click());
 $("syncFileInput").addEventListener("change", (e)=>{
   const f = e.target.files && e.target.files[0];
@@ -1839,22 +2047,87 @@ function hideHlBar(){ $("hlbar").style.display = "none"; hlPending = null; hlIma
 // phrase can be thrown straight at Google Images. The document's topic is prepended
 // when the selection does not already contain it - "signal on T1" alone returns
 // nothing useful, "craniopharyngioma signal on T1" returns the actual pictures.
+// An image search is not a sentence. Handing over a whole question - with the
+// page's topic, itself often a whole exam question, bolted to the front - produced
+// sixteen-word queries that match nothing. What works is a handful of specific
+// terms, so the sentence is reduced to its content words and the topic is added
+// only when the selection is too thin to stand on its own.
+const IMG_STOP = new Set(("a an the and or but of in on at to for with without by from as is are was were be been "
+  + "being do does did doing how what which why when where who whom whose that this these those it its their there "
+  + "can could should would may might will shall have has had you your we our they them he she his her if than then "
+  + "so such into over under between within during about also more most less least other others any some each per "
+  + "via versus vs commonly typically usually often seen show shows shown appear appears appearance describe "
+  + "discuss explain compare list name enumerate outline role key main common important significance features "
+  + "feature finding findings").split(" "));
+function keyTerms(text, max){
+  const out = [];
+  String(text || "").replace(/[^A-Za-z0-9'’\-\s]/g, " ").split(/\s+/).forEach(w=>{
+    const bare = w.toLowerCase().replace(/^[-'’]+|[-'’]+$/g, "");
+    // single characters are usually noise, except the ones that carry the meaning:
+    // the S in "golden S sign", the 4 in "O-RADS 4", T1, T2, B12
+    const keepSingle = /^[A-Z0-9]$/.test(w.replace(/[^A-Za-z0-9]/g, ""));
+    if (!bare || (bare.length < 2 && !keepSingle) || IMG_STOP.has(bare)) return;
+    if (out.length < (max || 8)) out.push(w);
+  });
+  return out;
+}
+// Exam titles put the subject at the end: "Discuss the thoracic imaging
+// manifestations in COLLAGEN VASCULAR DISEASES", "Enumerate the causes of LOBAR
+// COLLAPSE". Taking the tail after the last connector gets the actual subject
+// rather than the first four words of the instruction.
+function topicSubject(){
+  let t = String((doc && (doc.topic || doc.title)) || "").trim();
+  const m = t.match(/^.*\b(?:in|of|for|with|regarding|about)\b\s+(.+)$/i);   // greedy: the LAST connector
+  if (m && m[1] && m[1].split(/\s+/).length <= 8) t = m[1];
+  const c = t.lastIndexOf(":");
+  if (c > -1 && t.slice(c + 1).trim()) t = t.slice(c + 1);
+  return t;
+}
+// A keyword or two for context, then the selected words as they stand. The words
+// you chose are the search; the subject is only there so a phrase like "ring-and-arc"
+// is not searched against the whole internet.
+function imageQuery(sel){
+  const words = String(sel || "")
+    .replace(/^(?:what|which|how|why|when|where|who|name|describe|compare|list|explain|discuss|outline|enumerate)\b[\s,'’"]*(?:(?:is|are|does|do|did|the|a|an)\s+)*/i, "")
+    .replace(/[?"“”]/g, "")
+    .trim().split(/\s+/).slice(0, 12);
+  const body = words.join(" ");
+  const low = body.toLowerCase();
+  const lead = keyTerms(topicSubject(), 2).filter(t=> low.indexOf(t.toLowerCase()) === -1);
+  return (lead.length ? lead.join(" ") + " " : "") + body;
+}
 function imageSearch(){
   const sel = window.getSelection();
-  let q = sel ? String(sel).replace(/\s+/g, " ").trim() : "";
-  if (!q) return;
-  q = q.slice(0, 200)
-       .replace(/^(what|which|how|why|when|where|who|name|describe|compare|list|explain|discuss|outline)\b[\s,'"]*(is|are|does|do|the|a|an)?\s*/i, "")
-       .replace(/[?"]/g, "")
-       .trim();
-  const topic = String((doc && (doc.topic || doc.title)) || "").trim();
-  const full = (topic && q.toLowerCase().indexOf(topic.toLowerCase()) === -1 ? topic + " " : "") + q;
-  window.open("https://www.google.com/search?tbm=isch&q=" + encodeURIComponent(full),
+  const raw = sel ? String(sel).replace(/\s+/g, " ").trim() : "";
+  if (!raw) return;
+  window.open("https://www.google.com/search?tbm=isch&q=" + encodeURIComponent(imageQuery(raw)),
               "_blank", "noopener");
   hideHlBar();
 }
+// Every change to a highlight is reversible. The exact ranges of each affected
+// block are copied before the change, so undo restores the state rather than
+// trying to work out an inverse.
+let hlUndoStack = [];
+function pushUndo(keys){
+  const snap = keys.map(k=> ({ key: k, ranges: JSON.parse(JSON.stringify(hlRanges(k))) }));
+  hlUndoStack.push(snap);
+  if (hlUndoStack.length > 40) hlUndoStack.shift();
+  showUndo();
+}
+function undoHighlight(){
+  const snap = hlUndoStack.pop();
+  if (!snap) return false;
+  snap.forEach(x=>{ setRanges(x.key, x.ranges); repaintKey(x.key); });
+  saveDoc(); updateMeta(); showUndo();
+  return true;
+}
+function showUndo(){
+  const b = $("hlUndoBtn");
+  if (b) b.classList.toggle("on", hlUndoStack.length > 0);
+}
 function applyPending(patch){
   if (!hlPending) return;
+  pushUndo(hlPending.map(h=> h.key));
   hlPending.forEach(h=>{
     const list = hlRanges(h.key);
     setRanges(h.key, patch.clear ? cutRange(list, h.start, h.end)
@@ -1864,6 +2137,13 @@ function applyPending(patch){
   const sel = window.getSelection(); if (sel) sel.removeAllRanges();
   hideHlBar(); saveDoc(); updateMeta();
 }
+document.addEventListener("keydown", (e)=>{
+  const k = (e.key || "").toLowerCase();
+  if (k !== "z" || !(e.metaKey || e.ctrlKey) || e.shiftKey) return;
+  const t = e.target;
+  if (t && (t.tagName === "INPUT" || t.tagName === "TEXTAREA" || t.isContentEditable)) return;
+  if (undoHighlight()) e.preventDefault();
+});
 // ---- highlight mode ----
 // While on, a selection is painted the instant it ends, in the last style used from
 // the bar, and the bar itself stays out of the way. It is for the pass where you are
@@ -1893,6 +2173,7 @@ function paintModeButton(){
 $("hlModePill").addEventListener("click", (e)=>{
   const pill = $("hlModePill");
   if (e.target.closest(".pick")){ pill.classList.toggle("open"); return; }
+  if (e.target.closest(".undo")){ undoHighlight(); return; }
   if (e.target.closest(".stop")){ setHlMode(false); return; }
   const btn = e.target.closest("button[data-fill], button[data-tc], button[data-ul]");
   if (!btn) return;
@@ -1914,11 +2195,27 @@ function setHlMode(on){
 }
 function showModeButton(){ /* the toggle lives in the bar now; nothing to place */ }
 // In mode, paint straight away. Out of it, show the bar as before.
+// A selection worth painting without asking is a phrase. A run that swallows whole
+// blocks, or an entire block end to end, is almost always a slipped drag, a
+// triple-click or a stray select-all - so auto mode hands those to the bar instead
+// of painting them, and you decide.
+const AUTO_MAX_CHARS = 320;
+function runawaySelection(hits){
+  if (!hits || !hits.length) return false;
+  if (hits.length > 1) return true;                       // crossed into another block
+  const h = hits[0];
+  if (h.end - h.start > AUTO_MAX_CHARS) return true;      // far more than a phrase
+  const box = document.querySelector('[data-hlkey="' + h.key + '"]');
+  const len = box ? box.textContent.length : 0;
+  // a whole block end to end: a triple-click or select-all, never a deliberate drag
+  if (len > 80 && h.start <= 1 && h.end >= len - 1) return true;
+  return false;
+}
 function onSelectionDone(delay){
   setTimeout(()=>{
     const rect = captureSelection();
     if (!rect){ hideHlBar(); return; }
-    if (hlMode && hlPending){
+    if (hlMode && hlPending && !runawaySelection(hlPending)){
       applyPending({ fill: hlLast.fill|0, ul: hlLast.ul|0, tc: hlLast.tc|0 });
       return;
     }
@@ -1956,7 +2253,25 @@ document.addEventListener("click", (e)=>{
 // pages take whichever side was touched last, highlights the same per block.
 const now = ()=> Date.now();
 function uid(){ return "d" + Math.random().toString(36).slice(2,10) + now().toString(36); }
-function stampDoc(d){ if (d){ d.updatedAt = now(); if (!d.id) d.id = uid(); } }
+function stampDoc(d){ if (d){ d.updatedAt = now(); if (!d.id) d.id = uid(); if (!d.createdAt) d.createdAt = now(); } }
+// The Finder date belongs to the file; this one belongs to the work. Rewriting a
+// file resets the former and cannot touch the latter, so a document that has been
+// through an update still knows when it was made.
+function earliestStamp(d){
+  let min = Infinity;
+  (d.categories||[]).forEach(c=> (c.pages||[]).forEach(pg=>{
+    if (pg.updatedAt && pg.updatedAt < min) min = pg.updatedAt;
+  }));
+  if (d.updatedAt && d.updatedAt < min) min = d.updatedAt;
+  return min === Infinity ? null : min;
+}
+function ensureCreatedAt(d, fallback){
+  if (!d || d.createdAt) return d;
+  const guess = earliestStamp(d);
+  d.createdAt = Math.min(guess || Infinity, fallback || Infinity);
+  if (!isFinite(d.createdAt)) d.createdAt = guess || fallback || now();
+  return d;
+}
 function stampPage(i, j){
   const p = doc && doc.categories[i] && doc.categories[i].pages[j];
   if (p) p.updatedAt = now();
@@ -2127,7 +2442,7 @@ function hashOf(str){
   return str.length + ":" + h.toString(36);
 }
 const SYNC_PATH = "atlas-state.json";
-const BUILD = "2026-08-19f";
+const BUILD = "2026-08-20d";
 // a stable name for this browser, so a device can recognise its own writes
 const DEVICE_ID = (function(){
   let id = store.get("device_id");
@@ -2478,7 +2793,8 @@ function updateMeta(){
   }));
   let hls = 0;
   if (doc.hl) Object.keys(doc.hl).forEach(k=> hls += doc.hl[k].length);
-  $("metaLine").textContent = doc.categories.length + " categories · " + pages + " pages · "
+  $("metaLine").textContent = (doc.createdAt ? "Started " + new Date(doc.createdAt).toLocaleDateString() + " · " : "")
+    + doc.categories.length + " categories · " + pages + " pages · "
     + qs + " questions · " + answered + "/" + pages + " answered"
     + (deep ? " · " + deep + " deeper" : "")
     + (hls ? " · " + hls + " highlight" + (hls>1?"s":"") : "");
@@ -2626,6 +2942,24 @@ function groupRanges(ranges, len){
   });
   return groups;
 }
+// A highlight read on its own often loses what it was about: "ivory-like sclerosis"
+// means little without "appears as". A few words either side, in grey, restore the
+// sentence without competing with the marked words.
+const CTX_WORDS = 5;
+function ctxBefore(text, pos){
+  const head = text.slice(0, pos);
+  if (!head) return "";
+  const m = head.match(new RegExp("(?:\\S+\\s+){0," + CTX_WORDS + "}\\S*$"));
+  const out = m ? m[0] : "";
+  return (out.length < head.length ? "… " : "") + out;
+}
+function ctxAfter(text, pos){
+  const tail = text.slice(pos);
+  if (!tail) return "";
+  const m = tail.match(new RegExp("^\\s*(?:\\S+\\s*){0," + CTX_WORDS + "}"));
+  const out = m ? m[0] : "";
+  return out + (out.length < tail.length ? " …" : "");
+}
 function groupHtml(g, text){
   let html = "", pos = g.start;
   g.ranges.forEach(r=>{
@@ -2716,7 +3050,9 @@ function renderHlSummary(){
                 + ' data-hlk="' + b.key + '" data-hls="' + g.start + '" data-hle="' + g.end + '"'
                 + ' data-hlp="qn-' + pg.i + '-' + pg.j + '">'
                 + '<span class="hltag">' + esc(b.label) + '</span>'
-                + '<span class="hltext">' + groupHtml(g, b.text) + '</span></div>');
+                + '<span class="hltext"><span class="hlctx">' + esc(ctxBefore(b.text, g.start)) + '</span>'
+                + groupHtml(g, b.text)
+                + '<span class="hlctx">' + esc(ctxAfter(b.text, g.end)) + '</span></span></div>');
       });
     });
     if (!rows.length) return;
@@ -3055,6 +3391,7 @@ try {
 } catch(e){}
 $("hlbar").addEventListener("click", (e)=>{
   const btn = e.target.closest("button"); if (!btn) return;
+  if (btn.dataset.undo){ undoHighlight(); hideHlBar(); return; }
   if (btn.dataset.img) imageSearch();
   else if (btn.dataset.mode){
     // turning auto on from the bar also paints the current selection, so the
@@ -3280,6 +3617,8 @@ function pageHtml(){
   const q = (sel)=> clone.querySelector(sel);
 
   q("title").textContent = doc.title || doc.topic || "Atlas Answers";
+  const bm = q('meta[name="atlas-build"]');
+  if (bm) bm.setAttribute("content", BUILD);          // what version this page was written by
   const key = q("#apiKey"); key.setAttribute("value",""); key.value = "";
   q("#pasteBox").textContent = "";
   q("#exportBox").textContent = "";
